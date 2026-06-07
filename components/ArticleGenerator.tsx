@@ -5,6 +5,20 @@ import { Stepper } from "./Stepper";
 import { Card, ScoreBar, TierTag, Spinner } from "./ui";
 import type { ProductInfo, Theme, Questions, Source, Article, Q1Value, Q2Value, ArticleGeneratorInitialState } from "@/types";
 
+function toErrorMessage(e: unknown, fallback: string): string {
+  if (e instanceof Error) return e.message;
+  if (typeof e === "string") return e;
+  return fallback;
+}
+
+function apiError(data: unknown, fallback: string): string {
+  if (data && typeof data === "object" && "error" in data) {
+    const err = (data as { error: unknown }).error;
+    return typeof err === "string" ? err : fallback;
+  }
+  return fallback;
+}
+
 const ARTICLE_TYPES = [
   { id: "faq", label: "FAQ / How-to", emoji: "❓", fannel: "認知〜関心" },
   { id: "what", label: "What is（定義）", emoji: "📖", fannel: "認知" },
@@ -64,7 +78,7 @@ export function ArticleGenerator({ initialState }: { initialState?: ArticleGener
     setLoading(true);
     setError("");
     try { await fn(); }
-    catch (e) { setError(e instanceof Error ? e.message : "エラーが発生しました"); }
+    catch (e) { setError(toErrorMessage(e, "エラーが発生しました")); }
     finally { setLoading(false); }
   }, []);
 
@@ -88,7 +102,7 @@ export function ArticleGenerator({ initialState }: { initialState?: ArticleGener
         }),
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "記事生成に失敗しました");
+      if (!res.ok) throw new Error(apiError(data, "記事生成に失敗しました"));
       result.push({ theme: themesToGen[i], contentEn: data.contentEn, contentJa: data.contentJa });
     }
     setGenerateProgress("");
@@ -124,7 +138,7 @@ export function ArticleGenerator({ initialState }: { initialState?: ArticleGener
         body: JSON.stringify({ urls: urlList }),
       });
       const product = await extractRes.json();
-      if (!extractRes.ok) throw new Error(product.error || "商品情報の抽出に失敗しました");
+      if (!extractRes.ok) throw new Error(apiError(product, "商品情報の抽出に失敗しました"));
       setProductInfo(product);
 
       // 2. スコアリング
@@ -135,7 +149,7 @@ export function ArticleGenerator({ initialState }: { initialState?: ArticleGener
         body: JSON.stringify({ productInfo: product, q1, q2 }),
       });
       const scored = await scoreRes.json();
-      if (!scoreRes.ok) throw new Error(scored.error || "テーマ選定に失敗しました");
+      if (!scoreRes.ok) throw new Error(apiError(scored, "テーマ選定に失敗しました"));
       const scoredThemes = scored.themes ?? scored;
       setThemes(scoredThemes);
 
@@ -147,7 +161,7 @@ export function ArticleGenerator({ initialState }: { initialState?: ArticleGener
       setArticleLang("en");
       setPhase(4);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "エラーが発生しました");
+      setError(toErrorMessage(e, "エラーが発生しました"));
     } finally {
       setGenerating(false);
       setGenerateProgress("");
@@ -164,7 +178,7 @@ export function ArticleGenerator({ initialState }: { initialState?: ArticleGener
         body: JSON.stringify({ urls: urlList }),
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "商品情報の抽出に失敗しました");
+      if (!res.ok) throw new Error(apiError(data, "商品情報の抽出に失敗しました"));
       setProductInfo(data);
       if (data.productId) setProductId(data.productId);
       setPhase(1);
@@ -180,7 +194,7 @@ export function ArticleGenerator({ initialState }: { initialState?: ArticleGener
         body: JSON.stringify({ productInfo, q1, q2, productId }),
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "テーマ選定に失敗しました");
+      if (!res.ok) throw new Error(apiError(data, "テーマ選定に失敗しました"));
       setThemes(data.themes ?? data);
       if (data.themeIds) setThemeIds(data.themeIds);
       setPhase(2);
@@ -198,13 +212,13 @@ export function ArticleGenerator({ initialState }: { initialState?: ArticleGener
         body: JSON.stringify({ productId, productInfo, q1, q2, customizationInstruction }),
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "再スコアリングに失敗しました");
+      if (!res.ok) throw new Error(apiError(data, "再スコアリングに失敗しました"));
       const newThemes = data.themes ?? data;
       setThemes(newThemes);
       if (data.themeIds) setThemeIds(data.themeIds);
       setCustomizationInstruction("");
     } catch (e) {
-      setError(e instanceof Error ? e.message : "エラー");
+      setError(toErrorMessage(e, "エラーが発生しました"));
     } finally {
       setRescoring(false);
     }
@@ -219,7 +233,7 @@ export function ArticleGenerator({ initialState }: { initialState?: ArticleGener
         body: JSON.stringify({ topTheme: themes[0], productInfo, q1, themeId: themeIds[0] }),
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "質問生成に失敗しました");
+      if (!res.ok) throw new Error(apiError(data, "質問生成に失敗しました"));
       setQuestions(data);
       setPhase(3);
     });
@@ -235,11 +249,11 @@ export function ArticleGenerator({ initialState }: { initialState?: ArticleGener
         body: JSON.stringify({ questions, productInfo }),
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "メール生成に失敗しました");
+      if (!res.ok) throw new Error(apiError(data, "メール生成に失敗しました"));
       setEmailBody(data.emailBody);
       setShowEmail(true);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "エラー");
+      setError(toErrorMessage(e, "エラーが発生しました"));
     } finally {
       setEmailLoading(false);
     }
@@ -257,7 +271,7 @@ export function ArticleGenerator({ initialState }: { initialState?: ArticleGener
       setArticleLang("en");
       setPhase(4);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "エラー");
+      setError(toErrorMessage(e, "エラーが発生しました"));
     } finally {
       setGenerating(false);
     }
