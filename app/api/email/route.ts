@@ -1,3 +1,5 @@
+export const maxDuration = 60;
+
 import { callClaude } from "@/lib/claude";
 import { Questions, ProductInfo } from "@/types";
 

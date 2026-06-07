@@ -1,3 +1,5 @@
+export const maxDuration = 60;
+
 import { callClaude } from "@/lib/claude";
 import { saveArticle, updateProductInfo } from "@/lib/supabase";
 import { Theme, ProductInfo, Source } from "@/types";

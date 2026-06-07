@@ -1,3 +1,5 @@
+export const maxDuration = 60;
+
 import { callClaude, parseJSON } from "@/lib/claude";
 import { saveQuestions } from "@/lib/supabase";
 import { Questions, Theme, ProductInfo } from "@/types";
