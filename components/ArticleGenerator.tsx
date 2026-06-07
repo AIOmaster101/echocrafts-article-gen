@@ -3,7 +3,7 @@
 import { useState, useCallback } from "react";
 import { Stepper } from "./Stepper";
 import { Card, ScoreBar, TierTag, Spinner } from "./ui";
-import type { ProductInfo, Theme, Questions, Source, Article, Q1Value, Q2Value } from "@/types";
+import type { ProductInfo, Theme, Questions, Source, Article, Q1Value, Q2Value, ArticleGeneratorInitialState } from "@/types";
 
 const ARTICLE_TYPES = [
   { id: "faq", label: "FAQ / How-to", emoji: "❓", fannel: "認知〜関心" },
@@ -20,25 +20,25 @@ function BackButton({ onClick }: { onClick: () => void }) {
   );
 }
 
-export function ArticleGenerator() {
-  const [phase, setPhase] = useState(0);
+export function ArticleGenerator({ initialState }: { initialState?: ArticleGeneratorInitialState } = {}) {
+  const [phase, setPhase] = useState(initialState?.phase ?? 0);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
   // Phase 0
-  const [urls, setUrls] = useState("");
-  const [q1, setQ1] = useState<Q1Value | "">("");
-  const [q2, setQ2] = useState<Q2Value | "">("");
+  const [urls, setUrls] = useState(initialState?.urls ?? "");
+  const [q1, setQ1] = useState<Q1Value | "">(initialState?.q1 ?? "");
+  const [q2, setQ2] = useState<Q2Value | "">(initialState?.q2 ?? "");
 
   // DB tracking
-  const [productId, setProductId] = useState<string | undefined>(undefined);
+  const [productId, setProductId] = useState<string | undefined>(initialState?.productId);
   const [themeIds, setThemeIds] = useState<string[]>([]);
 
   // Phase 1
-  const [productInfo, setProductInfo] = useState<ProductInfo | null>(null);
+  const [productInfo, setProductInfo] = useState<ProductInfo | null>(initialState?.productInfo ?? null);
 
   // Phase 2
-  const [themes, setThemes] = useState<Theme[]>([]);
+  const [themes, setThemes] = useState<Theme[]>(initialState?.themes ?? []);
   const [customizationInstruction, setCustomizationInstruction] = useState("");
   const [rescoring, setRescoring] = useState(false);
 
