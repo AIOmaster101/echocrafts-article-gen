@@ -51,3 +51,63 @@ export interface Article {
 
 export type Q1Value = "interview_yes" | "interview_email" | "interview_no";
 export type Q2Value = "position_definition" | "position_gift" | "position_auto";
+
+// DB row types
+export interface ProductRow {
+  id: string;
+  created_at: string;
+  updated_at: string;
+  phase_completed: 0 | 1 | 2 | 3 | 4;
+  urls: string[];
+  q1: Q1Value;
+  q2: Q2Value;
+  name_ja: string | null;
+  name_en: string | null;
+  price_jpy: number | null;
+  price_usd: number | null;
+  material: string | null;
+  origin: string | null;
+  artisan: string | null;
+  use_cases: string | null;
+  category_en: string | null;
+  keywords: string[] | null;
+  similar_products: string[] | null;
+  key_differentiator: string | null;
+}
+
+export interface ThemeRow extends Theme {
+  id: string;
+  product_id: string;
+  priority: number;
+  customization_instruction: string | null;
+  is_customized: boolean;
+}
+
+export interface ArticleRow {
+  id: string;
+  created_at: string;
+  theme_id: string;
+  theme_index: number;
+  content_en: string;
+  content_ja: string;
+  interview_answers: string | null;
+  sources: Source[];
+  has_interview: boolean;
+}
+
+export interface ProductWithData extends ProductRow {
+  themes: ThemeRow[];
+  articles: ArticleRow[];
+}
+
+// ArticleGenerator に initialState を注入するための型（再開フロー用）
+export interface ArticleGeneratorInitialState {
+  productId: string;
+  phase: number;
+  urls?: string;
+  q1?: Q1Value;
+  q2?: Q2Value;
+  productInfo?: ProductInfo;
+  themes?: Theme[];
+  questions?: Questions;
+}
