@@ -4,7 +4,12 @@ import { ProductCard } from "@/components/dashboard/ProductCard";
 export const dynamic = "force-dynamic";
 
 export default async function Home() {
-  const products = await getProducts();
+  let products: Awaited<ReturnType<typeof getProducts>> = [];
+  try {
+    products = await getProducts();
+  } catch (e) {
+    console.error("Dashboard getProducts error:", e);
+  }
 
   return (
     <div className="min-h-screen bg-stone-50">
