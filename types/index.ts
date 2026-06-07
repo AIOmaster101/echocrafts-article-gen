@@ -43,5 +43,11 @@ export interface Source {
   note: string;
 }
 
+export interface Article {
+  theme: Theme;
+  contentEn: string;
+  contentJa: string;
+}
+
 export type Q1Value = "interview_yes" | "interview_email" | "interview_no";
 export type Q2Value = "position_definition" | "position_gift" | "position_auto";
