@@ -26,10 +26,18 @@ IMPORTANT: Output valid HTML only. Preserve the same HTML structure (<h1>, <h2>,
 - 専門用語は日本語で自然に説明する
 - 日本人読者が「当然知っている」背景情報は省略してよい`;
 
+function buildReferencesHtml(urls: string[], productInfo: ProductInfo): string {
+  const links = urls
+    .map((url) => `<li><a href="${url}" target="_blank" rel="noopener noreferrer">${productInfo.name_en || url}</a></li>`)
+    .join("\n");
+  return `\n<h2>References</h2>\n<ul>\n${links}\n</ul>`;
+}
+
 async function generateArticle(
   theme: Theme,
   productInfo: ProductInfo,
-  interviewAnswers: string
+  interviewAnswers: string,
+  urls: string[]
 ): Promise<{ contentEn: string; contentJa: string }> {
   const hasInterview = interviewAnswers?.trim().length > 0;
   const interviewSection = hasInterview
@@ -42,8 +50,10 @@ async function generateArticle(
 AIO差別化ポイント: ${theme.key_blank}
 参照すべき情報源階層: Tier1（一次情報）→ Tier2（学術・公的機関）→ Tier3（専門メディア）→ Tier4（一般メディア）の優先順`;
 
-  const contentEn = await callClaude(SYSTEM_EN, userMsg);
-  const contentJa = await callClaude(SYSTEM_JA, `以下の英語記事を日本語に意訳してください:\n\n${contentEn}`);
+  const rawEn = await callClaude(SYSTEM_EN, userMsg);
+  const refsHtml = buildReferencesHtml(urls, productInfo);
+  const contentEn = rawEn + refsHtml;
+  const contentJa = await callClaude(SYSTEM_JA, `以下の英語記事を日本語に意訳してください:\n\n${rawEn}`) + refsHtml;
   return { contentEn, contentJa };
 }
 
@@ -53,7 +63,8 @@ export async function POST(req: Request) {
       themes,
       productInfo,
       interviewAnswers,
-    }: { themes: Theme[]; productInfo: ProductInfo; interviewAnswers: string } = await req.json();
+      urls,
+    }: { themes: Theme[]; productInfo: ProductInfo; interviewAnswers: string; urls: string[] } = await req.json();
 
     const hasInterview = interviewAnswers?.trim().length > 0;
     const sources: Source[] = [];
@@ -69,14 +80,10 @@ export async function POST(req: Request) {
       { tier: "Tier 4", source: "Amazon / eBay レビュー", note: "購買者の視点・競合商品情報" }
     );
 
-    // 4記事を順番に生成（レート制限対策で並列ではなく直列）
-    const articles: { theme: Theme; contentEn: string; contentJa: string }[] = [];
-    for (const theme of themes) {
-      const { contentEn, contentJa } = await generateArticle(theme, productInfo, interviewAnswers);
-      articles.push({ theme, contentEn, contentJa });
-    }
+    const theme = themes[0]; // 1テーマずつ処理（フロント側でループ）
+    const { contentEn, contentJa } = await generateArticle(theme, productInfo, interviewAnswers, urls || []);
 
-    return Response.json({ articles, sources });
+    return Response.json({ theme, contentEn, contentJa, sources });
   } catch (e) {
     console.error("Article generation error:", e);
     return Response.json(

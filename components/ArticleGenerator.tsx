@@ -14,10 +14,7 @@ const ARTICLE_TYPES = [
 
 function BackButton({ onClick }: { onClick: () => void }) {
   return (
-    <button
-      onClick={onClick}
-      className="flex items-center gap-1.5 text-xs text-stone-500 hover:text-stone-700 mb-4 transition-colors"
-    >
+    <button onClick={onClick} className="flex items-center gap-1.5 text-xs text-stone-500 hover:text-stone-700 mb-4 transition-colors">
       ← 前のステップに戻る
     </button>
   );
@@ -52,27 +49,112 @@ export function ArticleGenerator() {
   const [activeArticleIndex, setActiveArticleIndex] = useState(0);
   const [articleLang, setArticleLang] = useState<"en" | "ja">("en");
   const [generating, setGenerating] = useState(false);
+  const [generateProgress, setGenerateProgress] = useState("");
   const [copied, setCopied] = useState(false);
+
+  const urlList = urls.trim().split("\n").filter(Boolean);
 
   const run = useCallback(async (fn: () => Promise<void>) => {
     setLoading(true);
     setError("");
+    try { await fn(); }
+    catch (e) { setError(e instanceof Error ? e.message : "エラーが発生しました"); }
+    finally { setLoading(false); }
+  }, []);
+
+  // 記事生成の共通関数（1本ずつ呼び出す）
+  async function generateAllArticles(
+    themesToGen: Theme[],
+    product: ProductInfo,
+    answers: string
+  ): Promise<Article[]> {
+    const result: Article[] = [];
+    for (let i = 0; i < themesToGen.length; i++) {
+      setGenerateProgress(`記事を生成中... ${i + 1} / ${themesToGen.length} 本目`);
+      const res = await fetch("/api/article", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          themes: [themesToGen[i]],
+          productInfo: product,
+          interviewAnswers: answers,
+          urls: urlList,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "記事生成に失敗しました");
+      result.push({ theme: themesToGen[i], contentEn: data.contentEn, contentJa: data.contentJa });
+    }
+    setGenerateProgress("");
+    return result;
+  }
+
+  // sources の共通組み立て
+  function buildSources(product: ProductInfo, answers: string): Source[] {
+    const hasInterview = answers.trim().length > 0;
+    const src: Source[] = [];
+    if (hasInterview) src.push({ tier: "Tier 1", source: `${product.artisan || "職人"}インタビュー`, note: "一次情報（独自取材）" });
+    src.push(
+      { tier: "Tier 1", source: product.artisan ? `${product.artisan} 公式ショップ` : "商品ページ", note: "商品仕様・価格・職人情報" },
+      { tier: "Tier 2", source: "Encyclopaedia Britannica", note: "技法の定義・歴史的背景" },
+      { tier: "Tier 2", source: "ResearchGate / 学術論文", note: "材料の化学的性質・耐久性データ" },
+      { tier: "Tier 3", source: "Musubi Kiln Journal", note: "伝統工芸のケア・使用方法" },
+      { tier: "Tier 4", source: "Amazon / eBay レビュー", note: "購買者の視点・競合商品情報" }
+    );
+    return src;
+  }
+
+  // ── ワンクリック生成（Step1→Step5）────────────────────────────
+  async function handleOneClick() {
+    if (!urls.trim() || !q1 || !q2) return;
+    setGenerating(true);
+    setError("");
     try {
-      await fn();
+      // 1. 抽出
+      setGenerateProgress("商品情報を抽出中...");
+      const extractRes = await fetch("/api/extract", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ urls: urlList }),
+      });
+      const product = await extractRes.json();
+      if (!extractRes.ok) throw new Error(product.error || "商品情報の抽出に失敗しました");
+      setProductInfo(product);
+
+      // 2. スコアリング
+      setGenerateProgress("テーマをスコアリング中...");
+      const scoreRes = await fetch("/api/score", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ productInfo: product, q1, q2 }),
+      });
+      const scored = await scoreRes.json();
+      if (!scoreRes.ok) throw new Error(scored.error || "テーマ選定に失敗しました");
+      setThemes(scored);
+
+      // 3. 記事生成（4本）
+      const generatedArticles = await generateAllArticles(scored, product, "");
+      setArticles(generatedArticles);
+      setSources(buildSources(product, ""));
+      setActiveArticleIndex(0);
+      setArticleLang("en");
+      setPhase(4);
     } catch (e) {
       setError(e instanceof Error ? e.message : "エラーが発生しました");
     } finally {
-      setLoading(false);
+      setGenerating(false);
+      setGenerateProgress("");
     }
-  }, []);
+  }
 
+  // ── 通常フロー ─────────────────────────────────────────────────
   async function handleExtract() {
     if (!urls.trim() || !q1 || !q2) return;
     await run(async () => {
       const res = await fetch("/api/extract", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ urls: urls.trim().split("\n").filter(Boolean) }),
+        body: JSON.stringify({ urls: urlList }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "商品情報の抽出に失敗しました");
@@ -136,15 +218,9 @@ export function ArticleGenerator() {
     setGenerating(true);
     setError("");
     try {
-      const res = await fetch("/api/article", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ themes, productInfo, interviewAnswers }),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "記事生成に失敗しました");
-      setArticles(data.articles);
-      setSources(data.sources);
+      const generatedArticles = await generateAllArticles(themes, productInfo, interviewAnswers);
+      setArticles(generatedArticles);
+      setSources(buildSources(productInfo, interviewAnswers));
       setActiveArticleIndex(0);
       setArticleLang("en");
       setPhase(4);
@@ -177,88 +253,105 @@ export function ArticleGenerator() {
   return (
     <div className="min-h-screen bg-stone-50 font-sans">
       <div className="max-w-3xl mx-auto px-4 py-10">
+
         {/* Header */}
         <div className="mb-10">
           <div className="flex items-center gap-3 mb-2">
             <div className="w-8 h-8 bg-stone-800 rounded-lg flex items-center justify-center">
               <span className="text-white text-sm">✦</span>
             </div>
-            <h1 className="text-xl font-medium text-stone-800 tracking-tight">
-              EchoCrafts Article Generator
-            </h1>
+            <h1 className="text-xl font-medium text-stone-800 tracking-tight">EchoCrafts Article Generator</h1>
           </div>
-          <p className="text-sm text-stone-500 ml-11">
-            商品URLから記事テーマ選定・職人質問生成・英日記事制作まで
-          </p>
+          <p className="text-sm text-stone-500 ml-11">商品URLから記事テーマ選定・職人質問生成・英日記事制作まで</p>
         </div>
 
         <Stepper phase={phase} />
 
         {error && (
-          <div className="mb-6 p-4 bg-red-50 border border-red-100 rounded-xl text-sm text-red-700">
-            {error}
-          </div>
+          <div className="mb-6 p-4 bg-red-50 border border-red-100 rounded-xl text-sm text-red-700">{error}</div>
         )}
 
         {/* ── Phase 0: Input ─────────────────────────────── */}
         {phase === 0 && (
-          <Card>
-            <h2 className="text-base font-medium text-stone-800 mb-5">商品情報を入力</h2>
-            <div className="space-y-5">
-              <div>
-                <label className="block text-xs font-medium text-stone-600 mb-1.5">
-                  商品URL <span className="text-red-400">*</span>
-                </label>
-                <textarea
-                  className="w-full h-24 text-sm border border-stone-200 rounded-xl px-3 py-2.5 resize-none focus:outline-none focus:ring-2 focus:ring-stone-300 bg-white"
-                  placeholder={"https://example.com/product/123\n複数の場合は改行で区切ってください"}
-                  value={urls}
-                  onChange={(e) => setUrls(e.target.value)}
-                />
-              </div>
-
-              <div>
-                <label className="block text-xs font-medium text-stone-600 mb-2">
-                  Q1. 職人・工房への一次取材はできますか？ <span className="text-red-400">*</span>
-                </label>
-                <div className="space-y-2">
-                  {[
-                    ["interview_yes", "できる（訪問済み・随時可能）→ E-E-A-T強化記事を最優先"],
-                    ["interview_email", "メール・オンラインのみ可 → テキスト取材ベース"],
-                    ["interview_no", "現時点では難しい → 4本目をvs比較記事に切り替える"],
-                  ].map(([val, label]) => (
-                    <label key={val} className={`flex items-start gap-2.5 p-3 rounded-xl border cursor-pointer transition-all ${q1 === val ? "border-stone-800 bg-stone-50" : "border-stone-100 hover:border-stone-200"}`}>
-                      <input type="radio" name="q1" value={val} checked={q1 === val} onChange={(e) => setQ1(e.target.value as Q1Value)} className="mt-0.5 accent-stone-800" />
-                      <span className="text-sm text-stone-700">{label}</span>
-                    </label>
-                  ))}
+          <div className="space-y-4">
+            <Card>
+              <h2 className="text-base font-medium text-stone-800 mb-5">商品情報を入力</h2>
+              <div className="space-y-5">
+                <div>
+                  <label className="block text-xs font-medium text-stone-600 mb-1.5">商品URL <span className="text-red-400">*</span></label>
+                  <textarea
+                    className="w-full h-24 text-sm border border-stone-200 rounded-xl px-3 py-2.5 resize-none focus:outline-none focus:ring-2 focus:ring-stone-300 bg-white"
+                    placeholder={"https://example.com/product/123\n複数の場合は改行で区切ってください"}
+                    value={urls}
+                    onChange={(e) => setUrls(e.target.value)}
+                  />
                 </div>
-              </div>
 
-              <div>
-                <label className="block text-xs font-medium text-stone-600 mb-2">
-                  Q2. 先に取りたいポジションはどれですか？ <span className="text-red-400">*</span>
-                </label>
-                <div className="space-y-2">
-                  {[
-                    ["position_definition", "定義独占 → 「What is [商品名]?」系を最優先"],
-                    ["position_gift", "ギフト流入 → 「Best [商品] Gifts」系を最優先"],
-                    ["position_auto", "どちらでもよい → スコアリング結果をそのまま採用"],
-                  ].map(([val, label]) => (
-                    <label key={val} className={`flex items-start gap-2.5 p-3 rounded-xl border cursor-pointer transition-all ${q2 === val ? "border-stone-800 bg-stone-50" : "border-stone-100 hover:border-stone-200"}`}>
-                      <input type="radio" name="q2" value={val} checked={q2 === val} onChange={(e) => setQ2(e.target.value as Q2Value)} className="mt-0.5 accent-stone-800" />
-                      <span className="text-sm text-stone-700">{label}</span>
-                    </label>
-                  ))}
+                <div>
+                  <label className="block text-xs font-medium text-stone-600 mb-2">Q1. 職人・工房への一次取材はできますか？ <span className="text-red-400">*</span></label>
+                  <div className="space-y-2">
+                    {[
+                      ["interview_yes", "できる（訪問済み・随時可能）→ E-E-A-T強化記事を最優先"],
+                      ["interview_email", "メール・オンラインのみ可 → テキスト取材ベース"],
+                      ["interview_no", "現時点では難しい → 職人インタビューなしで記事生成"],
+                    ].map(([val, label]) => (
+                      <label key={val} className={`flex items-start gap-2.5 p-3 rounded-xl border cursor-pointer transition-all ${q1 === val ? "border-stone-800 bg-stone-50" : "border-stone-100 hover:border-stone-200"}`}>
+                        <input type="radio" name="q1" value={val} checked={q1 === val} onChange={(e) => setQ1(e.target.value as Q1Value)} className="mt-0.5 accent-stone-800" />
+                        <span className="text-sm text-stone-700">{label}</span>
+                      </label>
+                    ))}
+                  </div>
                 </div>
-              </div>
 
-              <button onClick={handleExtract} disabled={loading || !urls.trim() || !q1 || !q2}
-                className="w-full py-3 bg-stone-800 text-white text-sm font-medium rounded-xl disabled:opacity-40 hover:bg-stone-700 active:scale-[0.99] transition-all">
-                {loading ? "抽出中..." : "商品情報を抽出する →"}
-              </button>
-            </div>
-          </Card>
+                <div>
+                  <label className="block text-xs font-medium text-stone-600 mb-2">Q2. 先に取りたいポジションはどれですか？ <span className="text-red-400">*</span></label>
+                  <div className="space-y-2">
+                    {[
+                      ["position_definition", "定義独占 → 「What is [商品名]?」系を最優先"],
+                      ["position_gift", "ギフト流入 → 「Best [商品] Gifts」系を最優先"],
+                      ["position_auto", "どちらでもよい → スコアリング結果をそのまま採用"],
+                    ].map(([val, label]) => (
+                      <label key={val} className={`flex items-start gap-2.5 p-3 rounded-xl border cursor-pointer transition-all ${q2 === val ? "border-stone-800 bg-stone-50" : "border-stone-100 hover:border-stone-200"}`}>
+                        <input type="radio" name="q2" value={val} checked={q2 === val} onChange={(e) => setQ2(e.target.value as Q2Value)} className="mt-0.5 accent-stone-800" />
+                        <span className="text-sm text-stone-700">{label}</span>
+                      </label>
+                    ))}
+                  </div>
+                </div>
+
+                {/* ワンクリック生成ボタン（interview_no または常に表示） */}
+                <div className={`rounded-xl border p-4 space-y-3 ${q1 === "interview_no" ? "border-stone-800 bg-stone-50" : "border-stone-200"}`}>
+                  <div>
+                    <p className="text-sm font-medium text-stone-800">
+                      ⚡ ワンクリック記事生成
+                      {q1 === "interview_no" && <span className="ml-2 text-[10px] bg-stone-800 text-white px-2 py-0.5 rounded-full">推奨</span>}
+                    </p>
+                    <p className="text-xs text-stone-500 mt-0.5">
+                      テーマ選定・質問生成をスキップして、4本の記事を一括生成します（職人インタビューなし）
+                    </p>
+                  </div>
+                  <button
+                    onClick={handleOneClick}
+                    disabled={generating || !urls.trim() || !q1 || !q2}
+                    className="w-full py-3 bg-stone-800 text-white text-sm font-medium rounded-xl disabled:opacity-40 hover:bg-stone-700 transition-all"
+                  >
+                    {generating ? (generateProgress || "生成中...") : "URLを入力して4本まとめて生成 →"}
+                  </button>
+                </div>
+
+                <div className="relative flex items-center gap-3">
+                  <div className="flex-1 h-px bg-stone-200" />
+                  <span className="text-xs text-stone-400">または ステップごとに進む</span>
+                  <div className="flex-1 h-px bg-stone-200" />
+                </div>
+
+                <button onClick={handleExtract} disabled={loading || !urls.trim() || !q1 || !q2}
+                  className="w-full py-3 border border-stone-300 text-stone-700 text-sm font-medium rounded-xl disabled:opacity-40 hover:bg-stone-50 transition-all">
+                  {loading ? "抽出中..." : "商品情報を抽出する（ステップごと）→"}
+                </button>
+              </div>
+            </Card>
+          </div>
         )}
 
         {/* ── Phase 1: Extracted info ────────────────────── */}
@@ -323,9 +416,7 @@ export function ArticleGenerator() {
               return (
                 <Card key={i} className={i === 0 ? "border-stone-300 ring-1 ring-stone-200" : ""}>
                   <div className="flex items-start gap-3 mb-4">
-                    <div className="w-9 h-9 rounded-xl bg-stone-100 flex items-center justify-center text-lg flex-shrink-0">
-                      {type.emoji}
-                    </div>
+                    <div className="w-9 h-9 rounded-xl bg-stone-100 flex items-center justify-center text-lg flex-shrink-0">{type.emoji}</div>
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2 mb-0.5">
                         <span className="text-[10px] font-medium text-stone-500">{`${i + 1}本目`} · {type.label}</span>
@@ -341,21 +432,14 @@ export function ArticleGenerator() {
                     </div>
                   </div>
                   <div className="space-y-2 mb-3">
-                    {([
-                      ["AIO空白度", t.score_aio, 30],
-                      ["実需確認度", t.score_demand, 25],
-                      ["売上への距離", t.score_sales, 25],
-                      ["制作コスト", t.score_cost, 20],
-                    ] as [string, number, number][]).map(([label, score, max]) => (
+                    {([["AIO空白度", t.score_aio, 30], ["実需確認度", t.score_demand, 25], ["売上への距離", t.score_sales, 25], ["制作コスト", t.score_cost, 20]] as [string, number, number][]).map(([label, score, max]) => (
                       <div key={label} className="flex items-center gap-2">
                         <span className="text-[10px] text-stone-500 w-24">{label}</span>
                         <ScoreBar score={score} max={max} />
                       </div>
                     ))}
                   </div>
-                  {t.aio_reason && (
-                    <p className="text-xs text-stone-500 p-2.5 bg-stone-50 rounded-lg">💡 {t.aio_reason}</p>
-                  )}
+                  {t.aio_reason && <p className="text-xs text-stone-500 p-2.5 bg-stone-50 rounded-lg">💡 {t.aio_reason}</p>}
                 </Card>
               );
             })}
@@ -381,7 +465,6 @@ export function ArticleGenerator() {
                   {emailLoading ? "生成中..." : "✉ メール文を生成"}
                 </button>
               </div>
-
               {[
                 { label: "必須質問（ネットに存在しない一次情報）", dot: "bg-red-400", items: questions.required, bg: "bg-red-50 border-red-100" },
                 { label: "推奨質問（記事の深みを上げる）", dot: "bg-amber-400", items: questions.recommended, bg: "bg-amber-50 border-amber-100" },
@@ -434,7 +517,7 @@ export function ArticleGenerator() {
 
             <button onClick={handleGenerateArticle} disabled={generating}
               className="w-full py-3 bg-stone-800 text-white text-sm font-medium rounded-xl disabled:opacity-40 hover:bg-stone-700 transition-all">
-              {generating ? "4本の記事を生成中（数分かかります）..." : "4本の記事をすべて生成する →"}
+              {generating ? (generateProgress || "記事を生成中...") : "4本の記事をすべて生成する →"}
             </button>
           </div>
         )}
@@ -443,6 +526,26 @@ export function ArticleGenerator() {
         {phase === 4 && articles.length > 0 && (
           <div className="space-y-4">
             <BackButton onClick={() => setPhase(3)} />
+
+            {/* テーマ一覧サマリ */}
+            {themes.length > 0 && (
+              <Card>
+                <h2 className="text-sm font-medium text-stone-700 mb-3">生成されたテーマ</h2>
+                <div className="space-y-2">
+                  {themes.map((t, i) => {
+                    const type = ARTICLE_TYPES.find((a) => a.id === t.type) || ARTICLE_TYPES[i % 4];
+                    const total = t.score_aio + t.score_demand + t.score_sales + t.score_cost;
+                    return (
+                      <div key={i} className="flex items-center gap-2 text-xs">
+                        <span>{type.emoji}</span>
+                        <span className="font-medium text-stone-700 flex-1 truncate">{t.title_en}</span>
+                        <span className="text-stone-400">{total}点</span>
+                      </div>
+                    );
+                  })}
+                </div>
+              </Card>
+            )}
 
             {/* 参照情報源 */}
             <Card>
@@ -467,12 +570,11 @@ export function ArticleGenerator() {
                 return (
                   <button key={i} onClick={() => setActiveArticleIndex(i)}
                     className={`flex-shrink-0 flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-medium border transition-all ${
-                      activeArticleIndex === i
-                        ? "bg-stone-800 text-white border-stone-800"
-                        : "bg-white text-stone-600 border-stone-200 hover:border-stone-300"
+                      activeArticleIndex === i ? "bg-stone-800 text-white border-stone-800" : "bg-white text-stone-600 border-stone-200 hover:border-stone-300"
                     }`}>
                     <span>{type.emoji}</span>
-                    <span>{i + 1}本目</span>
+                    <span className="hidden sm:inline">{i + 1}本目</span>
+                    <span className="sm:hidden">{i + 1}</span>
                   </button>
                 );
               })}
@@ -481,51 +583,37 @@ export function ArticleGenerator() {
             {/* 選択中の記事 */}
             {currentArticle && (
               <Card>
-                {/* テーマ情報 */}
                 <div className="mb-4 p-3 bg-stone-50 rounded-xl">
                   <p className="text-xs text-stone-500 mb-0.5">
-                    {ARTICLE_TYPES.find((t) => t.id === currentArticle.theme.type)?.label} ·{" "}
-                    スコア {currentArticle.theme.score_aio + currentArticle.theme.score_demand + currentArticle.theme.score_sales + currentArticle.theme.score_cost}
+                    {ARTICLE_TYPES.find((t) => t.id === currentArticle.theme.type)?.label} · スコア {currentArticle.theme.score_aio + currentArticle.theme.score_demand + currentArticle.theme.score_sales + currentArticle.theme.score_cost}
                   </p>
                   <p className="text-sm font-medium text-stone-800">{currentArticle.theme.title_en}</p>
                   <p className="text-xs text-stone-500">{currentArticle.theme.title_ja}</p>
                 </div>
 
-                {/* 言語切り替え */}
                 <div className="flex gap-1 mb-4 bg-stone-100 p-1 rounded-xl">
                   {(["en", "ja"] as const).map((lang) => (
                     <button key={lang} onClick={() => setArticleLang(lang)}
-                      className={`flex-1 py-2 text-sm rounded-lg transition-all ${
-                        articleLang === lang ? "bg-white shadow-sm text-stone-800 font-medium" : "text-stone-500 hover:text-stone-700"
-                      }`}>
+                      className={`flex-1 py-2 text-sm rounded-lg transition-all ${articleLang === lang ? "bg-white shadow-sm text-stone-800 font-medium" : "text-stone-500 hover:text-stone-700"}`}>
                       {lang === "en" ? "英語版" : "日本語版"}
                     </button>
                   ))}
                 </div>
 
-                {/* Wixコピーボタン */}
                 <div className="flex items-center justify-between mb-3">
-                  <p className="text-xs text-stone-400">
-                    WixのブログエディターでHTML埋め込みブロックに貼り付けてください
-                  </p>
+                  <p className="text-xs text-stone-400">WixのHTMLコードブロックに貼り付けてください</p>
                   <button onClick={() => copyHtml(currentHtml)}
                     className="flex-shrink-0 text-xs px-3 py-1.5 bg-stone-800 text-white rounded-lg hover:bg-stone-700 transition-all">
                     {copied ? "コピー済み ✓" : "HTMLをコピー"}
                   </button>
                 </div>
 
-                {/* HTMLプレビュー */}
-                <div
-                  className="prose prose-stone prose-sm max-w-none border border-stone-100 rounded-xl p-4 bg-white"
-                  dangerouslySetInnerHTML={{ __html: currentHtml }}
-                />
+                <div className="prose prose-stone prose-sm max-w-none border border-stone-100 rounded-xl p-4 bg-white"
+                  dangerouslySetInnerHTML={{ __html: currentHtml }} />
 
-                {/* 生のHTMLも確認できるように */}
                 <details className="mt-3">
                   <summary className="text-xs text-stone-400 cursor-pointer hover:text-stone-600">生のHTMLを表示</summary>
-                  <pre className="mt-2 text-xs text-stone-600 whitespace-pre-wrap bg-stone-50 rounded-xl p-4 overflow-x-auto leading-relaxed">
-                    {currentHtml}
-                  </pre>
+                  <pre className="mt-2 text-xs text-stone-600 whitespace-pre-wrap bg-stone-50 rounded-xl p-4 overflow-x-auto leading-relaxed">{currentHtml}</pre>
                 </details>
               </Card>
             )}
@@ -540,7 +628,10 @@ export function ArticleGenerator() {
         {/* Global loading overlay */}
         {(loading || generating) && phase !== 4 && (
           <div className="fixed bottom-6 right-6 bg-white border border-stone-100 rounded-2xl px-5 py-3 shadow-lg">
-            <Spinner />
+            {generating && generateProgress
+              ? <div className="flex items-center gap-2 text-stone-600"><div className="w-4 h-4 border-2 border-stone-300 border-t-stone-700 rounded-full animate-spin" /><span className="text-sm">{generateProgress}</span></div>
+              : <Spinner />
+            }
           </div>
         )}
       </div>
