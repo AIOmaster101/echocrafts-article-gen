@@ -1,4 +1,5 @@
 import { callClaude, parseJSON } from "@/lib/claude";
+import { saveQuestions } from "@/lib/supabase";
 import { Questions, Theme, ProductInfo } from "@/types";
 
 const SYSTEM = `あなたは日本工芸品の専門ライターです。記事テーマに基づき、職人・工房へのインタビュー質問リストをJSONで返してください。
@@ -13,7 +14,7 @@ required は3〜4問、recommended は3〜4問、eeat は2〜3問にしてくだ
 required の質問はネットに存在しない一次情報のみに絞ってください。`;
 
 export async function POST(req: Request) {
-  const { topTheme, productInfo, q1 }: { topTheme: Theme; productInfo: ProductInfo; q1: string } = await req.json();
+  const { topTheme, productInfo, q1, themeId }: { topTheme: Theme; productInfo: ProductInfo; q1: string; themeId?: string } = await req.json();
 
   const raw = await callClaude(
     SYSTEM,
@@ -24,5 +25,15 @@ export async function POST(req: Request) {
   if (!qs) {
     return Response.json({ error: "質問生成に失敗しました" }, { status: 500 });
   }
+
+  // Supabase保存（themeIdがない場合はスキップ）
+  if (themeId) {
+    try {
+      await saveQuestions(themeId, qs);
+    } catch (dbErr) {
+      console.error("Supabase write error (questions):", dbErr);
+    }
+  }
+
   return Response.json(qs);
 }
