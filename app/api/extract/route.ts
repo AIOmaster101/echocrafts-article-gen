@@ -1,4 +1,5 @@
 import { callClaude, parseJSON } from "@/lib/claude";
+import { saveProduct, updateProductInfo } from "@/lib/supabase";
 import { ProductInfo } from "@/types";
 
 const SYSTEM = `あなたは日本の工芸品越境ECの専門家です。商品URLを読み込み、以下のJSON形式で情報を返してください。必ずJSONのみ返してください。
@@ -36,7 +37,7 @@ async function fetchPageText(url: string): Promise<string> {
 
 export async function POST(req: Request) {
   try {
-    const { urls } = await req.json();
+    const { urls, productId: incomingProductId } = await req.json();
     if (!urls || !Array.isArray(urls) || urls.length === 0) {
       return Response.json({ error: "URLが必要です" }, { status: 400 });
     }
@@ -65,7 +66,21 @@ export async function POST(req: Request) {
     if (!info) {
       return Response.json({ error: `JSON解析失敗: ${raw.slice(0, 300)}` }, { status: 500 });
     }
-    return Response.json(info);
+
+    // Supabase保存（エラーは無視してフロー継続）
+    let productId: string | undefined = incomingProductId;
+    try {
+      if (!productId) {
+        productId = await saveProduct({ urls, q1: "", q2: "" });
+      }
+      if (productId) {
+        await updateProductInfo(productId, { ...info, phase_completed: 1 });
+      }
+    } catch (dbErr) {
+      console.error("Supabase write error (extract):", dbErr);
+    }
+
+    return Response.json({ ...info, productId });
   } catch (e) {
     console.error("Extract error:", e);
     return Response.json(

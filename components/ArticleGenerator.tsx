@@ -30,11 +30,17 @@ export function ArticleGenerator() {
   const [q1, setQ1] = useState<Q1Value | "">("");
   const [q2, setQ2] = useState<Q2Value | "">("");
 
+  // DB tracking
+  const [productId, setProductId] = useState<string | undefined>(undefined);
+  const [themeIds, setThemeIds] = useState<string[]>([]);
+
   // Phase 1
   const [productInfo, setProductInfo] = useState<ProductInfo | null>(null);
 
   // Phase 2
   const [themes, setThemes] = useState<Theme[]>([]);
+  const [customizationInstruction, setCustomizationInstruction] = useState("");
+  const [rescoring, setRescoring] = useState(false);
 
   // Phase 3
   const [questions, setQuestions] = useState<Questions | null>(null);
@@ -130,10 +136,11 @@ export function ArticleGenerator() {
       });
       const scored = await scoreRes.json();
       if (!scoreRes.ok) throw new Error(scored.error || "テーマ選定に失敗しました");
-      setThemes(scored);
+      const scoredThemes = scored.themes ?? scored;
+      setThemes(scoredThemes);
 
       // 3. 記事生成（4本）
-      const generatedArticles = await generateAllArticles(scored, product, "");
+      const generatedArticles = await generateAllArticles(scoredThemes, product, "");
       setArticles(generatedArticles);
       setSources(buildSources(product, ""));
       setActiveArticleIndex(0);
@@ -159,6 +166,7 @@ export function ArticleGenerator() {
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "商品情報の抽出に失敗しました");
       setProductInfo(data);
+      if (data.productId) setProductId(data.productId);
       setPhase(1);
     });
   }
@@ -169,13 +177,37 @@ export function ArticleGenerator() {
       const res = await fetch("/api/score", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ productInfo, q1, q2 }),
+        body: JSON.stringify({ productInfo, q1, q2, productId }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "テーマ選定に失敗しました");
-      setThemes(data);
+      setThemes(data.themes ?? data);
+      if (data.themeIds) setThemeIds(data.themeIds);
       setPhase(2);
     });
+  }
+
+  async function handleRescore() {
+    if (!productInfo || !customizationInstruction.trim()) return;
+    setRescoring(true);
+    setError("");
+    try {
+      const res = await fetch("/api/rescore", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ productId, productInfo, q1, q2, customizationInstruction }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "再スコアリングに失敗しました");
+      const newThemes = data.themes ?? data;
+      setThemes(newThemes);
+      if (data.themeIds) setThemeIds(data.themeIds);
+      setCustomizationInstruction("");
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "エラー");
+    } finally {
+      setRescoring(false);
+    }
   }
 
   async function handleGenerateQuestions() {
@@ -184,7 +216,7 @@ export function ArticleGenerator() {
       const res = await fetch("/api/questions", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ topTheme: themes[0], productInfo, q1 }),
+        body: JSON.stringify({ topTheme: themes[0], productInfo, q1, themeId: themeIds[0] }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "質問生成に失敗しました");
@@ -240,8 +272,10 @@ export function ArticleGenerator() {
 
   function reset() {
     setPhase(0); setUrls(""); setQ1(""); setQ2("");
+    setProductId(undefined); setThemeIds([]);
     setProductInfo(null); setThemes([]); setQuestions(null);
-    setInterviewAnswers(""); setEmailBody(""); setShowEmail(false);
+    setCustomizationInstruction(""); setInterviewAnswers("");
+    setEmailBody(""); setShowEmail(false);
     setArticles([]); setSources([]);
   }
 
@@ -443,6 +477,31 @@ export function ArticleGenerator() {
                 </Card>
               );
             })}
+            {/* テーマカスタマイズ（Step-by-Stepフローのみ） */}
+            <Card className="border-stone-200">
+              <details>
+                <summary className="text-sm font-medium text-stone-700 cursor-pointer select-none">
+                  🎯 テーマをカスタマイズする
+                </summary>
+                <div className="mt-3 space-y-3">
+                  <p className="text-xs text-stone-500">変更したい内容を日本語で入力してください</p>
+                  <textarea
+                    className="w-full h-20 text-sm border border-stone-200 rounded-xl px-3 py-2.5 resize-none focus:outline-none focus:ring-2 focus:ring-stone-300 bg-white"
+                    placeholder="例: 「1本目はギフト向けに変更してほしい」「比較記事（vs）はなしにしてほしい」"
+                    value={customizationInstruction}
+                    onChange={(e) => setCustomizationInstruction(e.target.value)}
+                  />
+                  <button
+                    onClick={handleRescore}
+                    disabled={rescoring || !customizationInstruction.trim()}
+                    className="w-full py-2.5 border border-stone-800 text-stone-800 text-sm font-medium rounded-xl disabled:opacity-40 hover:bg-stone-50 transition-all"
+                  >
+                    {rescoring ? "再スコアリング中..." : "指示を反映して再スコアリング →"}
+                  </button>
+                </div>
+              </details>
+            </Card>
+
             <button onClick={handleGenerateQuestions} disabled={loading}
               className="w-full py-3 bg-stone-800 text-white text-sm font-medium rounded-xl disabled:opacity-40 hover:bg-stone-700 transition-all">
               {loading ? "質問を生成中..." : "職人インタビュー質問を生成する →"}

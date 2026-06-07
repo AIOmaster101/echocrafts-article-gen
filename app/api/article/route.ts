@@ -1,4 +1,5 @@
 import { callClaude } from "@/lib/claude";
+import { saveArticle, updateProductInfo } from "@/lib/supabase";
 import { Theme, ProductInfo, Source } from "@/types";
 
 const SYSTEM_EN = `You are an expert content writer specializing in Japanese traditional crafts for international audiences.
@@ -64,7 +65,10 @@ export async function POST(req: Request) {
       productInfo,
       interviewAnswers,
       urls,
-    }: { themes: Theme[]; productInfo: ProductInfo; interviewAnswers: string; urls: string[] } = await req.json();
+      productId,
+      themeId,
+      themeIndex,
+    }: { themes: Theme[]; productInfo: ProductInfo; interviewAnswers: string; urls: string[]; productId?: string; themeId?: string; themeIndex?: number } = await req.json();
 
     const hasInterview = interviewAnswers?.trim().length > 0;
     const sources: Source[] = [];
@@ -82,6 +86,25 @@ export async function POST(req: Request) {
 
     const theme = themes[0]; // 1テーマずつ処理（フロント側でループ）
     const { contentEn, contentJa } = await generateArticle(theme, productInfo, interviewAnswers, urls || []);
+
+    // Supabase保存（エラーは無視してフロー継続）
+    try {
+      if (themeId) {
+        await saveArticle({
+          themeId,
+          themeIndex: themeIndex ?? 0,
+          contentEn,
+          contentJa,
+          interviewAnswers: interviewAnswers || "",
+          sources,
+        });
+      }
+      if (productId && themeIndex === 3) {
+        await updateProductInfo(productId, { phase_completed: 4 });
+      }
+    } catch (dbErr) {
+      console.error("Supabase write error (article):", dbErr);
+    }
 
     return Response.json({ theme, contentEn, contentJa, sources });
   } catch (e) {

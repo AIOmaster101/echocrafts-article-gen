@@ -1,8 +1,8 @@
 import { callClaude, parseJSON } from "@/lib/claude";
-import { saveThemes, updateProductInfo } from "@/lib/supabase";
+import { saveThemes } from "@/lib/supabase";
 import { Theme, ProductInfo } from "@/types";
 
-const SYSTEM = `あなたはAIO（AI検索最適化）の専門家です。商品情報を元に、4本の記事テーマをスコアリングして選定してください。
+const BASE_SYSTEM = `あなたはAIO（AI検索最適化）の専門家です。商品情報を元に、4本の記事テーマをスコアリングして選定してください。
 必ず以下のJSON配列のみ返してください（4件）:
 [{
   "type": "faq|what|best|vs のいずれか",
@@ -24,12 +24,36 @@ type は faq, what, best, vs の4種を1つずつ使ってください。
 - score_cost(20点): 工房取材なしで1週間以内に公開できるか`;
 
 export async function POST(req: Request) {
-  const { productInfo, q1, q2, productId }: { productInfo: ProductInfo; q1: string; q2: string; productId?: string } = await req.json();
+  const {
+    productId,
+    productInfo,
+    q1,
+    q2,
+    customizationInstruction,
+  }: {
+    productId?: string;
+    productInfo: ProductInfo;
+    q1: string;
+    q2: string;
+    customizationInstruction: string;
+  } = await req.json();
 
-  const raw = await callClaude(
-    SYSTEM,
-    `商品情報: ${JSON.stringify(productInfo, null, 2)}\nQ1（工房取材）: ${q1}\nQ2（優先ポジション）: ${q2}`
-  );
+  const system = `${BASE_SYSTEM}
+
+【ユーザーからのカスタマイズ指示（最優先）】
+${customizationInstruction}
+上記の指示を必ず反映させてください。`;
+
+  let raw: string;
+  try {
+    raw = await callClaude(
+      system,
+      `商品情報: ${JSON.stringify(productInfo, null, 2)}\nQ1（工房取材）: ${q1}\nQ2（優先ポジション）: ${q2}`
+    );
+  } catch (err) {
+    console.error("[rescore] Claude error:", err);
+    return Response.json({ error: "Claude呼び出しに失敗しました" }, { status: 500 });
+  }
 
   const scored = parseJSON<Theme[]>(raw);
   if (!scored || !Array.isArray(scored)) {
@@ -42,17 +66,13 @@ export async function POST(req: Request) {
       (a.score_aio + a.score_demand + a.score_sales + a.score_cost)
   );
 
-  // Supabase保存（productIdがない場合はスキップ）
-  let themeIds: string[] = [];
   if (productId) {
     try {
-      const savedThemes = await saveThemes(productId, sorted);
-      themeIds = savedThemes.map((t) => t.id);
-      await updateProductInfo(productId, { phase_completed: 2 });
-    } catch (dbErr) {
-      console.error("Supabase write error (score):", dbErr);
+      await saveThemes(productId, sorted, { customizationInstruction });
+    } catch (err) {
+      console.error("[rescore] Supabase error:", err);
     }
   }
 
-  return Response.json({ themes: sorted, themeIds });
+  return Response.json(sorted);
 }
