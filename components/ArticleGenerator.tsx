@@ -677,10 +677,16 @@ export function ArticleGenerator({ initialState }: { initialState?: ArticleGener
               </Card>
             )}
 
-            <button onClick={reset}
-              className="w-full py-3 border border-stone-200 text-stone-600 text-sm rounded-xl hover:bg-stone-50 transition-all">
-              別の商品で始める
-            </button>
+            <div className="flex gap-3">
+              <a href="/"
+                className="flex-1 py-3 text-center border border-stone-200 text-stone-600 text-sm rounded-xl hover:bg-stone-50 transition-all">
+                ← ダッシュボードへ
+              </a>
+              <button onClick={reset}
+                className="flex-1 py-3 border border-stone-200 text-stone-600 text-sm rounded-xl hover:bg-stone-50 transition-all">
+                別の商品で始める
+              </button>
+            </div>
           </div>
         )}
 
