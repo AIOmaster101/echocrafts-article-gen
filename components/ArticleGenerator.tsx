@@ -86,7 +86,9 @@ export function ArticleGenerator({ initialState }: { initialState?: ArticleGener
   async function generateAllArticles(
     themesToGen: Theme[],
     product: ProductInfo,
-    answers: string
+    answers: string,
+    currentProductId?: string,
+    currentThemeIds?: string[]
   ): Promise<Article[]> {
     const result: Article[] = [];
     for (let i = 0; i < themesToGen.length; i++) {
@@ -99,6 +101,9 @@ export function ArticleGenerator({ initialState }: { initialState?: ArticleGener
           productInfo: product,
           interviewAnswers: answers,
           urls: urlList,
+          productId: currentProductId,
+          themeId: currentThemeIds?.[i],
+          themeIndex: i,
         }),
       });
       const data = await res.json();
@@ -140,21 +145,25 @@ export function ArticleGenerator({ initialState }: { initialState?: ArticleGener
       const product = await extractRes.json();
       if (!extractRes.ok) throw new Error(apiError(product, "商品情報の抽出に失敗しました"));
       setProductInfo(product);
+      const newProductId: string | undefined = product.productId;
+      if (newProductId) setProductId(newProductId);
 
       // 2. スコアリング
       setGenerateProgress("テーマをスコアリング中...");
       const scoreRes = await fetch("/api/score", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ productInfo: product, q1, q2 }),
+        body: JSON.stringify({ productInfo: product, q1, q2, productId: newProductId }),
       });
       const scored = await scoreRes.json();
       if (!scoreRes.ok) throw new Error(apiError(scored, "テーマ選定に失敗しました"));
       const scoredThemes = scored.themes ?? scored;
+      const newThemeIds: string[] = scored.themeIds ?? [];
       setThemes(scoredThemes);
+      if (newThemeIds.length) setThemeIds(newThemeIds);
 
       // 3. 記事生成（4本）
-      const generatedArticles = await generateAllArticles(scoredThemes, product, "");
+      const generatedArticles = await generateAllArticles(scoredThemes, product, "", newProductId, newThemeIds);
       setArticles(generatedArticles);
       setSources(buildSources(product, ""));
       setActiveArticleIndex(0);
@@ -264,7 +273,7 @@ export function ArticleGenerator({ initialState }: { initialState?: ArticleGener
     setGenerating(true);
     setError("");
     try {
-      const generatedArticles = await generateAllArticles(themes, productInfo, interviewAnswers);
+      const generatedArticles = await generateAllArticles(themes, productInfo, interviewAnswers, productId, themeIds);
       setArticles(generatedArticles);
       setSources(buildSources(productInfo, interviewAnswers));
       setActiveArticleIndex(0);
