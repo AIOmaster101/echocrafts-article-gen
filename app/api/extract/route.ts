@@ -35,28 +35,42 @@ async function fetchPageText(url: string): Promise<string> {
 }
 
 export async function POST(req: Request) {
-  const { urls } = await req.json();
-  if (!urls || !Array.isArray(urls) || urls.length === 0) {
-    return Response.json({ error: "URLが必要です" }, { status: 400 });
-  }
+  try {
+    const { urls } = await req.json();
+    if (!urls || !Array.isArray(urls) || urls.length === 0) {
+      return Response.json({ error: "URLが必要です" }, { status: 400 });
+    }
 
-  // URLのページ内容を取得
-  const pageContents = await Promise.all(
-    urls.map(async (url: string) => {
-      try {
-        const text = await fetchPageText(url);
-        return `【URL: ${url}】\n${text}`;
-      } catch {
-        return `【URL: ${url}】\n（取得失敗）`;
-      }
-    })
-  );
+    // URLのページ内容を取得
+    const pageContents = await Promise.all(
+      urls.map(async (url: string) => {
+        try {
+          const text = await fetchPageText(url);
+          return `【URL: ${url}】\n${text}`;
+        } catch (e) {
+          console.error("URL fetch error:", e);
+          return `【URL: ${url}】\n（取得失敗: ${e instanceof Error ? e.message : String(e)}）`;
+        }
+      })
+    );
 
-  const userMessage = `以下の商品ページのテキストから情報を抽出してください:\n\n${pageContents.join("\n\n")}`;
-  const raw = await callClaude(SYSTEM, userMessage);
-  const info = parseJSON<ProductInfo>(raw);
-  if (!info) {
-    return Response.json({ error: "商品情報の抽出に失敗しました" }, { status: 500 });
+    console.log("Page content length:", pageContents[0]?.length);
+
+    const userMessage = `以下の商品ページのテキストから情報を抽出してください:\n\n${pageContents.join("\n\n")}`;
+    const raw = await callClaude(SYSTEM, userMessage);
+
+    console.log("Claude raw response:", raw.slice(0, 200));
+
+    const info = parseJSON<ProductInfo>(raw);
+    if (!info) {
+      return Response.json({ error: `JSON解析失敗: ${raw.slice(0, 300)}` }, { status: 500 });
+    }
+    return Response.json(info);
+  } catch (e) {
+    console.error("Extract error:", e);
+    return Response.json(
+      { error: `サーバーエラー: ${e instanceof Error ? e.message : String(e)}` },
+      { status: 500 }
+    );
   }
-  return Response.json(info);
 }
