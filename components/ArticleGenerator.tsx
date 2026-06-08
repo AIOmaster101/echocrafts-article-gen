@@ -71,6 +71,8 @@ export function ArticleGenerator({ initialState }: { initialState?: ArticleGener
   const [generating, setGenerating] = useState(false);
   const [generateProgress, setGenerateProgress] = useState("");
   const [copied, setCopied] = useState(false);
+  // 各記事の個別生成ステータス: "idle" | "generating" | "translating" | "done" | "error"
+  const [articleStatus, setArticleStatus] = useState<string[]>([]);
 
   const urlList = urls.trim().split("\n").filter(Boolean);
 
@@ -82,72 +84,81 @@ export function ArticleGenerator({ initialState }: { initialState?: ArticleGener
     finally { setLoading(false); }
   }, []);
 
-  // 記事生成の共通関数（1本ずつ呼び出す）
-  // 英語記事を1本生成してすぐ画面に反映、その後日本語を非同期で追加
-  async function generateAllArticles(
+  // 1本の記事を生成（EN→JA順）して即座にstateに反映
+  async function generateSingleArticle(
+    index: number,
     themesToGen: Theme[],
     product: ProductInfo,
     answers: string,
     currentProductId?: string,
     currentThemeIds?: string[]
-  ): Promise<Article[]> {
-    const result: Article[] = [];
+  ) {
+    setArticleStatus(prev => { const s = [...prev]; s[index] = "generating"; return s; });
 
-    for (let i = 0; i < themesToGen.length; i++) {
-      // Step 1: 英語記事生成（~20-30s）
-      setGenerateProgress(`英語記事を生成中... ${i + 1} / ${themesToGen.length} 本目`);
+    try {
+      // Step 1: 英語記事生成 (~25s)
       const res = await fetch("/api/article", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          themes: [themesToGen[i]],
+          themes: [themesToGen[index]],
           productInfo: product,
           interviewAnswers: answers,
           urls: urlList,
           productId: currentProductId,
-          themeId: currentThemeIds?.[i],
-          themeIndex: i,
+          themeId: currentThemeIds?.[index],
+          themeIndex: index,
         }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(apiError(data, "記事生成に失敗しました"));
 
-      // 英語が完成したら即座に画面に反映
-      const article: Article = {
-        theme: themesToGen[i],
-        contentEn: data.contentEn,
-        contentJa: "",
-        rawEn: data.rawEn,
-        refsHtml: data.refsHtml,
-        jaLoading: true,
-      };
-      result.push(article);
-      setArticles([...result]);
-      setPhase(4); // 1本目が完成したらすぐPhase4に遷移
-      setGenerateProgress(`日本語に翻訳中... ${i + 1} / ${themesToGen.length} 本目`);
+      // 英語完成 → 即反映
+      setArticles(prev => {
+        const next = [...prev];
+        next[index] = { theme: themesToGen[index], contentEn: data.contentEn, contentJa: "", rawEn: data.rawEn, refsHtml: data.refsHtml, jaLoading: true };
+        return next;
+      });
+      setArticleStatus(prev => { const s = [...prev]; s[index] = "translating"; return s; });
 
-      // Step 2: 日本語翻訳（~15-20s）
+      // Step 2: 日本語翻訳 (~20s)
       try {
         const jaRes = await fetch("/api/article/translate", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            rawEn: data.rawEn,
-            refsHtml: data.refsHtml,
-            themeId: currentThemeIds?.[i],
-          }),
+          body: JSON.stringify({ rawEn: data.rawEn, refsHtml: data.refsHtml, themeId: currentThemeIds?.[index] }),
         });
         const jaData = await jaRes.json();
-        article.contentJa = jaData.contentJa ?? "";
+        setArticles(prev => {
+          const next = [...prev];
+          if (next[index]) { next[index] = { ...next[index], contentJa: jaData.contentJa ?? "", jaLoading: false }; }
+          return next;
+        });
       } catch {
-        article.contentJa = "（日本語翻訳に失敗しました）";
+        setArticles(prev => {
+          const next = [...prev];
+          if (next[index]) next[index] = { ...next[index], contentJa: "（日本語翻訳に失敗しました）", jaLoading: false };
+          return next;
+        });
       }
-      article.jaLoading = false;
-      setArticles([...result]);
+      setArticleStatus(prev => { const s = [...prev]; s[index] = "done"; return s; });
+    } catch (e) {
+      setArticleStatus(prev => { const s = [...prev]; s[index] = "error"; return s; });
+      setError(toErrorMessage(e, `${index + 1}本目の記事生成に失敗しました`));
     }
+  }
 
-    setGenerateProgress("");
-    return result;
+  // 全記事を順番に生成
+  async function generateAllSequential(
+    themesToGen: Theme[],
+    product: ProductInfo,
+    answers: string,
+    currentProductId?: string,
+    currentThemeIds?: string[]
+  ) {
+    for (let i = 0; i < themesToGen.length; i++) {
+      await generateSingleArticle(i, themesToGen, product, answers, currentProductId, currentThemeIds);
+    }
   }
 
   // sources の共通組み立て
@@ -198,12 +209,15 @@ export function ArticleGenerator({ initialState }: { initialState?: ArticleGener
       setThemes(scoredThemes);
       if (newThemeIds.length) setThemeIds(newThemeIds);
 
-      // 3. 記事生成（4本 - generateAllArticles内で1本ずつ表示）
-      setArticles([]);
+      // 3. Phase4に遷移して全記事を順番に生成
+      const emptyArticles = new Array(scoredThemes.length).fill(null);
+      setArticles(emptyArticles);
+      setArticleStatus(new Array(scoredThemes.length).fill("idle"));
       setActiveArticleIndex(0);
       setArticleLang("en");
       setSources(buildSources(product, ""));
-      await generateAllArticles(scoredThemes, product, "", newProductId, newThemeIds);
+      setPhase(4);
+      await generateAllSequential(scoredThemes, product, "", newProductId, newThemeIds);
     } catch (e) {
       setError(toErrorMessage(e, "エラーが発生しました"));
     } finally {
@@ -307,13 +321,15 @@ export function ArticleGenerator({ initialState }: { initialState?: ArticleGener
     if (!themes.length || !productInfo) return;
     setGenerating(true);
     setError("");
-    setArticles([]);
+    const emptyArticles = new Array(themes.length).fill(null);
+    setArticles(emptyArticles);
+    setArticleStatus(new Array(themes.length).fill("idle"));
     setActiveArticleIndex(0);
     setArticleLang("en");
     setSources(buildSources(productInfo, interviewAnswers));
+    setPhase(4);
     try {
-      // generateAllArticles内でsetPhase(4)とsetArticlesが呼ばれ、1本ずつ表示される
-      await generateAllArticles(themes, productInfo, interviewAnswers, productId, themeIds);
+      await generateAllSequential(themes, productInfo, interviewAnswers, productId, themeIds);
     } catch (e) {
       setError(toErrorMessage(e, "エラーが発生しました"));
     } finally {
@@ -334,7 +350,7 @@ export function ArticleGenerator({ initialState }: { initialState?: ArticleGener
     setProductInfo(null); setThemes([]); setQuestions(null);
     setCustomizationInstruction(""); setInterviewAnswers("");
     setEmailBody(""); setShowEmail(false);
-    setArticles([]); setSources([]);
+    setArticles([]); setSources([]); setArticleStatus([]);
   }
 
   const currentArticle = articles[activeArticleIndex];
@@ -640,116 +656,137 @@ export function ArticleGenerator({ initialState }: { initialState?: ArticleGener
         )}
 
         {/* ── Phase 4: Articles ──────────────────────────── */}
-        {phase === 4 && articles.length > 0 && (
+        {phase === 4 && themes.length > 0 && (
           <div className="space-y-4">
-            <BackButton onClick={() => setPhase(3)} />
+            <BackButton onClick={() => { setPhase(3); setArticles([]); setArticleStatus([]); }} />
 
-            {/* テーマ一覧サマリ */}
-            {themes.length > 0 && (
-              <Card>
-                <h2 className="text-sm font-medium text-stone-700 mb-3">生成されたテーマ</h2>
-                <div className="space-y-2">
-                  {themes.map((t, i) => {
-                    const type = ARTICLE_TYPES.find((a) => a.id === t.type) || ARTICLE_TYPES[i % 4];
-                    const total = t.score_aio + t.score_demand + t.score_sales + t.score_cost;
-                    return (
-                      <div key={i} className="flex items-center gap-2 text-xs">
-                        <span>{type.emoji}</span>
-                        <span className="font-medium text-stone-700 flex-1 truncate">{t.title_en}</span>
-                        <span className="text-stone-400">{total}点</span>
-                      </div>
-                    );
-                  })}
-                </div>
-              </Card>
-            )}
-
-            {/* 参照情報源 */}
-            <Card>
-              <h2 className="text-sm font-medium text-stone-700 mb-3">参照情報源</h2>
-              <div className="space-y-2">
-                {sources.map((s, i) => (
-                  <div key={i} className="flex items-start gap-2.5">
-                    <TierTag tier={s.tier} />
-                    <div>
-                      <p className="text-xs font-medium text-stone-800">{s.source}</p>
-                      <p className="text-[10px] text-stone-400">{s.note}</p>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </Card>
-
-            {/* 記事選択タブ */}
-            <div className="flex gap-2 overflow-x-auto pb-1">
-              {articles.map((a, i) => {
-                const type = ARTICLE_TYPES.find((t) => t.id === a.theme.type) || ARTICLE_TYPES[i % 4];
-                return (
-                  <button key={i} onClick={() => setActiveArticleIndex(i)}
-                    className={`flex-shrink-0 flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-medium border transition-all ${
-                      activeArticleIndex === i ? "bg-stone-800 text-white border-stone-800" : "bg-white text-stone-600 border-stone-200 hover:border-stone-300"
-                    }`}>
-                    <span>{type.emoji}</span>
-                    <span className="hidden sm:inline">{i + 1}本目</span>
-                    <span className="sm:hidden">{i + 1}</span>
-                  </button>
-                );
-              })}
+            <div className="flex items-center justify-between">
+              <h2 className="text-base font-medium text-stone-800">記事生成</h2>
+              {articleStatus.some(s => s === "idle" || s === "error") && !generating && (
+                <button
+                  onClick={() => {
+                    setGenerating(true);
+                    setError("");
+                    generateAllSequential(themes, productInfo!, interviewAnswers, productId, themeIds)
+                      .finally(() => setGenerating(false));
+                  }}
+                  className="text-xs px-3 py-1.5 bg-stone-800 text-white rounded-lg hover:bg-stone-700"
+                >
+                  全て生成する
+                </button>
+              )}
             </div>
 
-            {/* 選択中の記事 */}
-            {currentArticle && (
-              <Card>
-                <div className="mb-4 p-3 bg-stone-50 rounded-xl">
-                  <p className="text-xs text-stone-500 mb-0.5">
-                    {ARTICLE_TYPES.find((t) => t.id === currentArticle.theme.type)?.label} · スコア {currentArticle.theme.score_aio + currentArticle.theme.score_demand + currentArticle.theme.score_sales + currentArticle.theme.score_cost}
-                  </p>
-                  <p className="text-sm font-medium text-stone-800">{currentArticle.theme.title_en}</p>
-                  <p className="text-xs text-stone-500">{currentArticle.theme.title_ja}</p>
-                </div>
+            {/* 4本のカード一覧 */}
+            {themes.map((t, i) => {
+              const type = ARTICLE_TYPES.find((a) => a.id === t.type) || ARTICLE_TYPES[i % 4];
+              const status = articleStatus[i] ?? "idle";
+              const article = articles[i];
+              const isActive = activeArticleIndex === i && article;
 
-                <div className="flex gap-1 mb-4 bg-stone-100 p-1 rounded-xl">
-                  {(["en", "ja"] as const).map((lang) => (
-                    <button key={lang} onClick={() => setArticleLang(lang)}
-                      className={`flex-1 py-2 text-sm rounded-lg transition-all ${articleLang === lang ? "bg-white shadow-sm text-stone-800 font-medium" : "text-stone-500 hover:text-stone-700"}`}>
-                      {lang === "en" ? "英語版" : currentArticle.jaLoading ? "日本語版（翻訳中...）" : "日本語版"}
-                    </button>
-                  ))}
-                </div>
-
-                {/* 日本語生成中インジケーター */}
-                {currentArticle.jaLoading && articleLang === "ja" && (
-                  <div className="flex items-center gap-2 p-4 bg-amber-50 border border-amber-100 rounded-xl mb-3">
-                    <div className="w-4 h-4 border-2 border-amber-300 border-t-amber-600 rounded-full animate-spin flex-shrink-0" />
-                    <p className="text-sm text-amber-700">日本語に翻訳中です...</p>
+              return (
+                <Card key={i} className={isActive ? "border-stone-300" : ""}>
+                  {/* ヘッダー */}
+                  <div className="flex items-start gap-3 mb-3">
+                    <span className="text-lg">{type.emoji}</span>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-medium text-stone-800 truncate">{t.title_en}</p>
+                      <p className="text-xs text-stone-500">{t.title_ja}</p>
+                    </div>
+                    {/* ステータスバッジ */}
+                    {status === "idle" && (
+                      <button
+                        onClick={() => {
+                          setError("");
+                          generateSingleArticle(i, themes, productInfo!, interviewAnswers, productId, themeIds);
+                        }}
+                        disabled={generating}
+                        className="flex-shrink-0 text-xs px-3 py-1.5 bg-stone-800 text-white rounded-lg hover:bg-stone-700 disabled:opacity-40"
+                      >
+                        生成する
+                      </button>
+                    )}
+                    {status === "generating" && (
+                      <span className="flex items-center gap-1.5 text-xs text-blue-600">
+                        <div className="w-3 h-3 border-2 border-blue-300 border-t-blue-600 rounded-full animate-spin" />
+                        英語記事を生成中...
+                      </span>
+                    )}
+                    {status === "translating" && (
+                      <span className="flex items-center gap-1.5 text-xs text-amber-600">
+                        <div className="w-3 h-3 border-2 border-amber-300 border-t-amber-600 rounded-full animate-spin" />
+                        日本語に翻訳中...
+                      </span>
+                    )}
+                    {status === "done" && (
+                      <span className="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded-full">完成</span>
+                    )}
+                    {status === "error" && (
+                      <button
+                        onClick={() => {
+                          setError("");
+                          generateSingleArticle(i, themes, productInfo!, interviewAnswers, productId, themeIds);
+                        }}
+                        className="flex-shrink-0 text-xs px-3 py-1.5 bg-red-50 text-red-600 border border-red-200 rounded-lg hover:bg-red-100"
+                      >
+                        再試行
+                      </button>
+                    )}
                   </div>
-                )}
 
-                <div className="flex items-center justify-between mb-3">
-                  <p className="text-xs text-stone-400">WixのHTMLコードブロックに貼り付けてください</p>
-                  <button onClick={() => copyHtml(currentHtml)}
-                    className="flex-shrink-0 text-xs px-3 py-1.5 bg-stone-800 text-white rounded-lg hover:bg-stone-700 transition-all">
-                    {copied ? "コピー済み ✓" : "HTMLをコピー"}
-                  </button>
-                </div>
+                  {/* 生成済み記事の表示 */}
+                  {article && (status === "translating" || status === "done") && (
+                    <div>
+                      <button
+                        onClick={() => setActiveArticleIndex(isActive ? -1 : i)}
+                        className="text-xs text-stone-500 hover:text-stone-700 mb-3"
+                      >
+                        {isActive ? "▲ 閉じる" : "▼ 記事を表示"}
+                      </button>
 
-                <div className="prose prose-stone prose-sm max-w-none border border-stone-100 rounded-xl p-4 bg-white"
-                  dangerouslySetInnerHTML={{ __html: currentHtml }} />
-
-                <details className="mt-3">
-                  <summary className="text-xs text-stone-400 cursor-pointer hover:text-stone-600">生のHTMLを表示</summary>
-                  <pre className="mt-2 text-xs text-stone-600 whitespace-pre-wrap bg-stone-50 rounded-xl p-4 overflow-x-auto leading-relaxed">{currentHtml}</pre>
-                </details>
-              </Card>
-            )}
+                      {isActive && (
+                        <>
+                          <div className="flex gap-1 mb-3 bg-stone-100 p-1 rounded-xl">
+                            {(["en", "ja"] as const).map((lang) => (
+                              <button key={lang} onClick={() => setArticleLang(lang)}
+                                className={`flex-1 py-1.5 text-sm rounded-lg transition-all ${articleLang === lang ? "bg-white shadow-sm text-stone-800 font-medium" : "text-stone-500"}`}>
+                                {lang === "en" ? "英語版" : article.jaLoading ? "日本語版（翻訳中...）" : "日本語版"}
+                              </button>
+                            ))}
+                          </div>
+                          {article.jaLoading && articleLang === "ja" && (
+                            <div className="flex items-center gap-2 p-3 bg-amber-50 border border-amber-100 rounded-xl mb-3">
+                              <div className="w-3 h-3 border-2 border-amber-300 border-t-amber-600 rounded-full animate-spin" />
+                              <p className="text-xs text-amber-700">日本語翻訳中...</p>
+                            </div>
+                          )}
+                          <div className="flex justify-end mb-2">
+                            <button onClick={() => copyHtml(articleLang === "en" ? article.contentEn : article.contentJa)}
+                              className="text-xs px-3 py-1.5 bg-stone-800 text-white rounded-lg hover:bg-stone-700">
+                              {copied ? "コピー済み ✓" : "HTMLをコピー"}
+                            </button>
+                          </div>
+                          <div className="prose prose-stone prose-sm max-w-none border border-stone-100 rounded-xl p-4 bg-white"
+                            dangerouslySetInnerHTML={{ __html: articleLang === "en" ? article.contentEn : article.contentJa }} />
+                          <details className="mt-2">
+                            <summary className="text-xs text-stone-400 cursor-pointer">生のHTMLを表示</summary>
+                            <pre className="mt-2 text-xs text-stone-600 whitespace-pre-wrap bg-stone-50 rounded-xl p-3 overflow-x-auto">
+                              {articleLang === "en" ? article.contentEn : article.contentJa}
+                            </pre>
+                          </details>
+                        </>
+                      )}
+                    </div>
+                  )}
+                </Card>
+              );
+            })}
 
             <div className="flex gap-3">
-              <a href="/"
-                className="flex-1 py-3 text-center border border-stone-200 text-stone-600 text-sm rounded-xl hover:bg-stone-50 transition-all">
+              <a href="/" className="flex-1 py-3 text-center border border-stone-200 text-stone-600 text-sm rounded-xl hover:bg-stone-50 transition-all">
                 ← ダッシュボードへ
               </a>
-              <button onClick={reset}
-                className="flex-1 py-3 border border-stone-200 text-stone-600 text-sm rounded-xl hover:bg-stone-50 transition-all">
+              <button onClick={reset} className="flex-1 py-3 border border-stone-200 text-stone-600 text-sm rounded-xl hover:bg-stone-50 transition-all">
                 別の商品で始める
               </button>
             </div>

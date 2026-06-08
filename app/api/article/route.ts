@@ -89,17 +89,31 @@ export async function POST(req: Request) {
     const theme = themes[0];
     const { contentEn, rawEn, refsHtml } = await generateArticle(theme, productInfo, interviewAnswers, urls || []);
 
-    // Supabase: 英語のみ先行保存（日本語はtranslate完了後に更新）
+    // Supabase: 英語のみ先行保存（themeIdがない場合はproductId+themeIndexで検索）
     try {
-      if (themeId) {
+      let resolvedThemeId = themeId;
+      if (!resolvedThemeId && productId) {
+        const db = (await import("@/lib/supabase")).getSupabaseClient();
+        const { data } = await db
+          .from("themes")
+          .select("id")
+          .eq("product_id", productId)
+          .eq("priority", themeIndex ?? 0)
+          .single();
+        resolvedThemeId = data?.id;
+      }
+      if (resolvedThemeId) {
         await saveArticle({
-          themeId,
+          themeId: resolvedThemeId,
           themeIndex: themeIndex ?? 0,
           contentEn,
-          contentJa: "", // 翻訳後に更新
+          contentJa: "",
           interviewAnswers: interviewAnswers || "",
           sources,
         });
+      }
+      if (productId && (themeIndex ?? 0) === 3) {
+        await updateProductInfo(productId, { phase_completed: 4 });
       }
     } catch (dbErr) {
       console.error("Supabase write error (article):", dbErr);
