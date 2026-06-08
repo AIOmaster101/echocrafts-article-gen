@@ -41,7 +41,7 @@ async function generateArticle(
   productInfo: ProductInfo,
   interviewAnswers: string,
   urls: string[]
-): Promise<{ contentEn: string; contentJa: string }> {
+): Promise<{ contentEn: string; rawEn: string; refsHtml: string }> {
   const hasInterview = interviewAnswers?.trim().length > 0;
   const interviewSection = hasInterview
     ? `\n\n【職人インタビュー一次情報（Tier 1・最優先で使用）】\n${interviewAnswers}`
@@ -56,8 +56,8 @@ AIO差別化ポイント: ${theme.key_blank}
   const rawEn = await callClaude(SYSTEM_EN, userMsg);
   const refsHtml = buildReferencesHtml(urls, productInfo);
   const contentEn = rawEn + refsHtml;
-  const contentJa = await callClaude(SYSTEM_JA, `以下の英語記事を日本語に意訳してください:\n\n${rawEn}`) + refsHtml;
-  return { contentEn, contentJa };
+  // 日本語は /api/article/translate で別途生成（タイムアウト対策）
+  return { contentEn, rawEn, refsHtml };
 }
 
 export async function POST(req: Request) {
@@ -86,29 +86,26 @@ export async function POST(req: Request) {
       { tier: "Tier 4", source: "Amazon / eBay レビュー", note: "購買者の視点・競合商品情報" }
     );
 
-    const theme = themes[0]; // 1テーマずつ処理（フロント側でループ）
-    const { contentEn, contentJa } = await generateArticle(theme, productInfo, interviewAnswers, urls || []);
+    const theme = themes[0];
+    const { contentEn, rawEn, refsHtml } = await generateArticle(theme, productInfo, interviewAnswers, urls || []);
 
-    // Supabase保存（エラーは無視してフロー継続）
+    // Supabase: 英語のみ先行保存（日本語はtranslate完了後に更新）
     try {
       if (themeId) {
         await saveArticle({
           themeId,
           themeIndex: themeIndex ?? 0,
           contentEn,
-          contentJa,
+          contentJa: "", // 翻訳後に更新
           interviewAnswers: interviewAnswers || "",
           sources,
         });
-      }
-      if (productId && themeIndex === 3) {
-        await updateProductInfo(productId, { phase_completed: 4 });
       }
     } catch (dbErr) {
       console.error("Supabase write error (article):", dbErr);
     }
 
-    return Response.json({ theme, contentEn, contentJa, sources });
+    return Response.json({ theme, contentEn, rawEn, refsHtml, sources });
   } catch (e) {
     console.error("Article generation error:", e);
     return Response.json(

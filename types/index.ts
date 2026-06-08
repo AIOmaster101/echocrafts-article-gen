@@ -47,6 +47,9 @@ export interface Article {
   theme: Theme;
   contentEn: string;
   contentJa: string;
+  rawEn?: string;    // 翻訳リクエスト用（一時保持）
+  refsHtml?: string; // 翻訳リクエスト用（一時保持）
+  jaLoading?: boolean; // 日本語生成中フラグ
 }
 
 export type Q1Value = "interview_yes" | "interview_email" | "interview_no";

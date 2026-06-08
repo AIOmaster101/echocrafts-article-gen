@@ -83,6 +83,7 @@ export function ArticleGenerator({ initialState }: { initialState?: ArticleGener
   }, []);
 
   // 記事生成の共通関数（1本ずつ呼び出す）
+  // 英語記事を1本生成してすぐ画面に反映、その後日本語を非同期で追加
   async function generateAllArticles(
     themesToGen: Theme[],
     product: ProductInfo,
@@ -91,8 +92,10 @@ export function ArticleGenerator({ initialState }: { initialState?: ArticleGener
     currentThemeIds?: string[]
   ): Promise<Article[]> {
     const result: Article[] = [];
+
     for (let i = 0; i < themesToGen.length; i++) {
-      setGenerateProgress(`記事を生成中... ${i + 1} / ${themesToGen.length} 本目`);
+      // Step 1: 英語記事生成（~20-30s）
+      setGenerateProgress(`英語記事を生成中... ${i + 1} / ${themesToGen.length} 本目`);
       const res = await fetch("/api/article", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -108,8 +111,41 @@ export function ArticleGenerator({ initialState }: { initialState?: ArticleGener
       });
       const data = await res.json();
       if (!res.ok) throw new Error(apiError(data, "記事生成に失敗しました"));
-      result.push({ theme: themesToGen[i], contentEn: data.contentEn, contentJa: data.contentJa });
+
+      // 英語が完成したら即座に画面に反映
+      const article: Article = {
+        theme: themesToGen[i],
+        contentEn: data.contentEn,
+        contentJa: "",
+        rawEn: data.rawEn,
+        refsHtml: data.refsHtml,
+        jaLoading: true,
+      };
+      result.push(article);
+      setArticles([...result]);
+      setPhase(4); // 1本目が完成したらすぐPhase4に遷移
+      setGenerateProgress(`日本語に翻訳中... ${i + 1} / ${themesToGen.length} 本目`);
+
+      // Step 2: 日本語翻訳（~15-20s）
+      try {
+        const jaRes = await fetch("/api/article/translate", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            rawEn: data.rawEn,
+            refsHtml: data.refsHtml,
+            themeId: currentThemeIds?.[i],
+          }),
+        });
+        const jaData = await jaRes.json();
+        article.contentJa = jaData.contentJa ?? "";
+      } catch {
+        article.contentJa = "（日本語翻訳に失敗しました）";
+      }
+      article.jaLoading = false;
+      setArticles([...result]);
     }
+
     setGenerateProgress("");
     return result;
   }
@@ -162,13 +198,12 @@ export function ArticleGenerator({ initialState }: { initialState?: ArticleGener
       setThemes(scoredThemes);
       if (newThemeIds.length) setThemeIds(newThemeIds);
 
-      // 3. 記事生成（4本）
-      const generatedArticles = await generateAllArticles(scoredThemes, product, "", newProductId, newThemeIds);
-      setArticles(generatedArticles);
-      setSources(buildSources(product, ""));
+      // 3. 記事生成（4本 - generateAllArticles内で1本ずつ表示）
+      setArticles([]);
       setActiveArticleIndex(0);
       setArticleLang("en");
-      setPhase(4);
+      setSources(buildSources(product, ""));
+      await generateAllArticles(scoredThemes, product, "", newProductId, newThemeIds);
     } catch (e) {
       setError(toErrorMessage(e, "エラーが発生しました"));
     } finally {
@@ -272,13 +307,13 @@ export function ArticleGenerator({ initialState }: { initialState?: ArticleGener
     if (!themes.length || !productInfo) return;
     setGenerating(true);
     setError("");
+    setArticles([]);
+    setActiveArticleIndex(0);
+    setArticleLang("en");
+    setSources(buildSources(productInfo, interviewAnswers));
     try {
-      const generatedArticles = await generateAllArticles(themes, productInfo, interviewAnswers, productId, themeIds);
-      setArticles(generatedArticles);
-      setSources(buildSources(productInfo, interviewAnswers));
-      setActiveArticleIndex(0);
-      setArticleLang("en");
-      setPhase(4);
+      // generateAllArticles内でsetPhase(4)とsetArticlesが呼ばれ、1本ずつ表示される
+      await generateAllArticles(themes, productInfo, interviewAnswers, productId, themeIds);
     } catch (e) {
       setError(toErrorMessage(e, "エラーが発生しました"));
     } finally {
@@ -677,10 +712,18 @@ export function ArticleGenerator({ initialState }: { initialState?: ArticleGener
                   {(["en", "ja"] as const).map((lang) => (
                     <button key={lang} onClick={() => setArticleLang(lang)}
                       className={`flex-1 py-2 text-sm rounded-lg transition-all ${articleLang === lang ? "bg-white shadow-sm text-stone-800 font-medium" : "text-stone-500 hover:text-stone-700"}`}>
-                      {lang === "en" ? "英語版" : "日本語版"}
+                      {lang === "en" ? "英語版" : currentArticle.jaLoading ? "日本語版（翻訳中...）" : "日本語版"}
                     </button>
                   ))}
                 </div>
+
+                {/* 日本語生成中インジケーター */}
+                {currentArticle.jaLoading && articleLang === "ja" && (
+                  <div className="flex items-center gap-2 p-4 bg-amber-50 border border-amber-100 rounded-xl mb-3">
+                    <div className="w-4 h-4 border-2 border-amber-300 border-t-amber-600 rounded-full animate-spin flex-shrink-0" />
+                    <p className="text-sm text-amber-700">日本語に翻訳中です...</p>
+                  </div>
+                )}
 
                 <div className="flex items-center justify-between mb-3">
                   <p className="text-xs text-stone-400">WixのHTMLコードブロックに貼り付けてください</p>
