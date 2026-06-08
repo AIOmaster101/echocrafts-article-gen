@@ -71,6 +71,7 @@ export async function POST(req: Request) {
 
     // Supabase保存（エラーは無視してフロー継続）
     let productId: string | undefined = incomingProductId;
+    let dbError: string | undefined;
     try {
       if (!productId) {
         productId = await saveProduct({ urls, q1: "", q2: "" });
@@ -79,10 +80,12 @@ export async function POST(req: Request) {
         await updateProductInfo(productId, { ...info, phase_completed: 1 });
       }
     } catch (dbErr) {
+      dbError = dbErr instanceof Error ? dbErr.message : String(dbErr);
       console.error("Supabase write error (extract):", dbErr);
     }
 
-    return Response.json({ ...info, productId });
+    // dbErrorをレスポンスに含める（一時デバッグ用）
+    return Response.json({ ...info, productId, _dbError: dbError });
   } catch (e) {
     console.error("Extract error:", e);
     return Response.json(
