@@ -22,7 +22,7 @@ export async function saveProduct(data: {
 }): Promise<string> {
   const db = getSupabaseClient();
   const { data: row, error } = await db
-    .from("products")
+    .from("projects")
     .insert({ urls: data.urls, q1: data.q1, q2: data.q2, phase_completed: 0 })
     .select("id")
     .single();
@@ -36,7 +36,7 @@ export async function updateProductInfo(
 ): Promise<void> {
   const db = getSupabaseClient();
   await db
-    .from("products")
+    .from("projects")
     .update({ ...info, updated_at: new Date().toISOString() })
     .eq("id", productId);
 }
@@ -108,7 +108,7 @@ export async function saveArticle(data: {
 export async function getProducts(): Promise<ProductRow[]> {
   const db = getSupabaseClient();
   const { data, error } = await db
-    .from("products")
+    .from("projects")
     .select("*")
     .order("created_at", { ascending: false });
   if (error) throw error;
@@ -118,7 +118,7 @@ export async function getProducts(): Promise<ProductRow[]> {
 export async function getProductWithData(productId: string): Promise<ProductWithData | null> {
   const db = getSupabaseClient();
   const { data: product, error: pErr } = await db
-    .from("products")
+    .from("projects")
     .select("*")
     .eq("id", productId)
     .single();
