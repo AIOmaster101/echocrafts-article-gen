@@ -80,7 +80,7 @@ export async function POST(req: Request) {
         await updateProductInfo(productId, { ...info, phase_completed: 1 });
       }
     } catch (dbErr) {
-      dbError = dbErr instanceof Error ? dbErr.message : String(dbErr);
+      dbError = dbErr instanceof Error ? dbErr.message : JSON.stringify(dbErr);
       console.error("Supabase write error (extract):", dbErr);
     }
 
