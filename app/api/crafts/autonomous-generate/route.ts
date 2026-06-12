@@ -7,7 +7,7 @@ import { getSupabaseClient } from '@/lib/supabase';
 import { buildArticleJsonLd, buildFaqJsonLd, buildBreadcrumbJsonLd, embedJsonLd } from '@/lib/crafts-jsonld';
 import type { CraftItem, FaqItem, InternalLink } from '@/types/crafts';
 
-export const maxDuration = 60;
+export const maxDuration = 300;
 
 interface FactExtracted {
   fact_type: string;
@@ -204,12 +204,18 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // 4. Extract facts for each source (auto-approved)
-    const promptPath = join(process.cwd(), 'prompts', 'crafts', 'extract_facts.md');
-    const systemPrompt = readFileSync(promptPath, 'utf-8');
+    // 4. Extract facts for each source in parallel (auto-approved)
+    let systemPrompt: string;
+    try {
+      const promptPath = join(process.cwd(), 'prompts', 'crafts', 'extract_facts.md');
+      systemPrompt = readFileSync(promptPath, 'utf-8');
+    } catch {
+      // Fallback inline prompt if file not found (Vercel bundle issue)
+      systemPrompt = `You are a fact extraction assistant for Japanese traditional crafts. Given a webpage text, extract structured facts as a JSON array. Each fact should have: fact_type (one of: definition, history, region, technique, material, designation, artist, award, export, market), claim (string), year (number or null), value (string or null), quote_basis (brief quote from text or null). Return ONLY a valid JSON array, no other text.`;
+    }
     let totalFactsExtracted = 0;
 
-    for (const sourceId of insertedSourceIds) {
+    const extractPromises = insertedSourceIds.map(async (sourceId) => {
       const { data: sourceRow } = await db
         .from('craft_sources')
         .select('raw_text')
@@ -217,7 +223,7 @@ export async function POST(req: NextRequest) {
         .single();
 
       const rawText: string = (sourceRow as { raw_text: string | null } | null)?.raw_text ?? '';
-      if (!rawText.trim()) continue;
+      if (!rawText.trim()) return 0;
 
       let extracted: FactExtracted[] | null = null;
       try {
@@ -225,10 +231,10 @@ export async function POST(req: NextRequest) {
         extracted = parseJSON<FactExtracted[]>(claudeResponse);
       } catch (e) {
         console.error(`Failed to extract facts for source ${sourceId}:`, e);
-        continue;
+        return 0;
       }
 
-      if (!extracted || !Array.isArray(extracted)) continue;
+      if (!extracted || !Array.isArray(extracted)) return 0;
 
       // DELETE existing facts for this source (idempotent)
       await db.from('craft_facts').delete().eq('source_id', sourceId);
@@ -255,11 +261,13 @@ export async function POST(req: NextRequest) {
 
       if (insertError) {
         console.error('Failed to insert facts:', insertError);
-        continue;
+        return 0;
       }
+      return (insertedFacts ?? []).length;
+    });
 
-      totalFactsExtracted += (insertedFacts ?? []).length;
-    }
+    const factCounts = await Promise.all(extractPromises);
+    totalFactsExtracted = factCounts.reduce((a, b) => a + b, 0);
 
     // 5. Quality guard
     const { data: approvedFacts } = await db
@@ -367,8 +375,13 @@ export async function POST(req: NextRequest) {
       craftItem.article_type === 'pillar'
         ? 'generate_article_pillar.md'
         : 'generate_article_spoke.md';
-    const articlePromptPath = join(process.cwd(), 'prompts', 'crafts', promptFile);
-    const articleSystemPrompt = readFileSync(articlePromptPath, 'utf-8');
+    let articleSystemPrompt: string;
+    try {
+      const articlePromptPath = join(process.cwd(), 'prompts', 'crafts', promptFile);
+      articleSystemPrompt = readFileSync(articlePromptPath, 'utf-8');
+    } catch {
+      articleSystemPrompt = `You are an expert writer on Japanese traditional crafts. Generate a comprehensive article as a JSON object with fields: title (string), meta_description (string, under 160 chars), body_html (HTML string with h2/h3/p/ul tags, no absolute URLs in href), faq (array of {question, answer}), internal_links (array of {slug, anchor_text}). Use only relative URLs. Return ONLY valid JSON.`;
+    }
 
     const claudeArticleResponse = await callClaude(articleSystemPrompt, inputStr);
     const parsed = parseJSON<ArticleClaudeResponse>(claudeArticleResponse);

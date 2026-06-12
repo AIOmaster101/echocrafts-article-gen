@@ -141,8 +141,14 @@ export default function CraftDetailPage({
         body: JSON.stringify({ craft_item_id: id }),
       });
       if (!res.ok) {
-        const err = await res.json();
-        setAutonomousError(err.error ?? "不明なエラーが発生しました");
+        let errMsg = "不明なエラーが発生しました";
+        try {
+          const err = await res.json();
+          errMsg = err.error ?? errMsg;
+        } catch {
+          errMsg = `サーバーエラー (HTTP ${res.status})`;
+        }
+        setAutonomousError(errMsg);
         return;
       }
       router.push(`/admin/crafts/${id}/article`);
