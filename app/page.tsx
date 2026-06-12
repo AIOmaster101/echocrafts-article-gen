@@ -23,12 +23,20 @@ export default async function Home() {
               EchoCrafts Article Generator
             </h1>
           </div>
-          <a
-            href="/new"
-            className="px-4 py-2 bg-stone-800 text-white text-sm rounded-xl hover:bg-stone-700 transition-colors"
-          >
-            + 新規作成
-          </a>
+          <div className="flex items-center gap-2">
+            <a
+              href="/admin/crafts"
+              className="px-4 py-2 border border-stone-300 text-stone-700 text-sm rounded-xl hover:bg-stone-100 transition-colors"
+            >
+              工芸百科事典
+            </a>
+            <a
+              href="/new"
+              className="px-4 py-2 bg-stone-800 text-white text-sm rounded-xl hover:bg-stone-700 transition-colors"
+            >
+              + 新規作成
+            </a>
+          </div>
         </div>
 
         {products.length === 0 ? (
