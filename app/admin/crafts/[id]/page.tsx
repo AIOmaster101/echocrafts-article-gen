@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState, use } from "react";
+import { useRouter } from "next/navigation";
 import type { CraftItem, CraftSource, CraftItemStatus } from "@/types/crafts";
 import Link from "next/link";
 
@@ -44,11 +45,16 @@ export default function CraftDetailPage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = use(params);
+  const router = useRouter();
 
   const [craft, setCraft] = useState<CraftItem | null>(null);
   const [sources, setSources] = useState<CraftSource[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+
+  // Autonomous generate state
+  const [autonomousLoading, setAutonomousLoading] = useState(false);
+  const [autonomousError, setAutonomousError] = useState<string | null>(null);
 
   // Add source form state
   const [showAddForm, setShowAddForm] = useState(false);
@@ -122,6 +128,28 @@ export default function CraftDetailPage({
       setSources((prev) => prev.filter((s) => s.id !== sourceId));
     } finally {
       setDeletingId(null);
+    }
+  }
+
+  async function handleAutonomousGenerate() {
+    setAutonomousLoading(true);
+    setAutonomousError(null);
+    try {
+      const res = await fetch("/api/crafts/autonomous-generate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ craft_item_id: id }),
+      });
+      if (!res.ok) {
+        const err = await res.json();
+        setAutonomousError(err.error ?? "不明なエラーが発生しました");
+        return;
+      }
+      router.push(`/admin/crafts/${id}/article`);
+    } catch (e) {
+      setAutonomousError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setAutonomousLoading(false);
     }
   }
 
@@ -436,29 +464,78 @@ export default function CraftDetailPage({
         </div>
 
         {/* Pipeline action buttons */}
-        <div className="flex gap-3">
-          <Link
-            href={hasFetchedSource ? `/admin/crafts/${id}/facts` : "#"}
-            aria-disabled={!hasFetchedSource}
-            className={`flex-1 text-center text-sm py-3 rounded-xl font-medium transition-colors ${
-              hasFetchedSource
-                ? "bg-stone-800 text-white hover:bg-stone-700"
-                : "bg-stone-100 text-stone-400 cursor-not-allowed pointer-events-none"
-            }`}
-          >
-            事実を抽出する
-          </Link>
-          <Link
-            href={canGenerateArticle ? `/admin/crafts/${id}/article` : "#"}
-            aria-disabled={!canGenerateArticle}
-            className={`flex-1 text-center text-sm py-3 rounded-xl font-medium transition-colors ${
-              canGenerateArticle
-                ? "bg-emerald-700 text-white hover:bg-emerald-600"
-                : "bg-stone-100 text-stone-400 cursor-not-allowed pointer-events-none"
-            }`}
-          >
-            記事を生成する
-          </Link>
+        <div className="space-y-4">
+          {/* Autonomous generate — primary CTA */}
+          <div className="bg-white border border-stone-100 rounded-2xl p-5 shadow-sm">
+            <button
+              onClick={handleAutonomousGenerate}
+              disabled={autonomousLoading}
+              className="w-full bg-stone-800 text-white text-sm py-3.5 rounded-xl font-semibold hover:bg-stone-700 transition-colors disabled:opacity-60 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+            >
+              {autonomousLoading ? (
+                <>
+                  <svg
+                    className="animate-spin h-4 w-4 text-white flex-shrink-0"
+                    xmlns="http://www.w3.org/2000/svg"
+                    fill="none"
+                    viewBox="0 0 24 24"
+                  >
+                    <circle
+                      className="opacity-25"
+                      cx="12"
+                      cy="12"
+                      r="10"
+                      stroke="currentColor"
+                      strokeWidth="4"
+                    />
+                    <path
+                      className="opacity-75"
+                      fill="currentColor"
+                      d="M4 12a8 8 0 018-8v8H4z"
+                    />
+                  </svg>
+                  <span>ソース取得 → 事実抽出 → 記事生成中... (約60秒)</span>
+                </>
+              ) : (
+                "自律生成（ワンクリック）"
+              )}
+            </button>
+            {autonomousError && (
+              <p className="mt-2 text-xs text-red-500 text-center">{autonomousError}</p>
+            )}
+            <p className="mt-2 text-[11px] text-stone-400 text-center">
+              ソース自動取得 → 事実抽出 → 記事生成をまとめて実行します
+            </p>
+          </div>
+
+          {/* Manual flow — secondary */}
+          <div>
+            <p className="text-[11px] text-stone-400 mb-2 text-center">詳細設定（手動フロー）</p>
+            <div className="flex gap-3">
+              <Link
+                href={hasFetchedSource ? `/admin/crafts/${id}/facts` : "#"}
+                aria-disabled={!hasFetchedSource}
+                className={`flex-1 text-center text-sm py-3 rounded-xl font-medium transition-colors ${
+                  hasFetchedSource
+                    ? "bg-stone-100 text-stone-700 hover:bg-stone-200"
+                    : "bg-stone-100 text-stone-400 cursor-not-allowed pointer-events-none"
+                }`}
+              >
+                事実レビュー
+              </Link>
+              <Link
+                href={canGenerateArticle ? `/admin/crafts/${id}/article` : "#"}
+                aria-disabled={!canGenerateArticle}
+                className={`flex-1 text-center text-sm py-3 rounded-xl font-medium transition-colors ${
+                  canGenerateArticle
+                    ? "bg-stone-100 text-stone-700 hover:bg-stone-200"
+                    : "bg-stone-100 text-stone-400 cursor-not-allowed pointer-events-none"
+                }`}
+              >
+                記事を生成する
+              </Link>
+            </div>
+          </div>
         </div>
 
       </div>
