@@ -56,6 +56,12 @@ export default function CraftDetailPage({
   const [autonomousLoading, setAutonomousLoading] = useState(false);
   const [autonomousError, setAutonomousError] = useState<string | null>(null);
 
+  // Cover image state
+  const [coverImageUrl, setCoverImageUrl] = useState<string | null>(null);
+  const [coverImageCredit, setCoverImageCredit] = useState<string | null>(null);
+  const [imageLoading, setImageLoading] = useState(false);
+  const [imageError, setImageError] = useState<string | null>(null);
+
   // Add source form state
   const [showAddForm, setShowAddForm] = useState(false);
   const [addUrl, setAddUrl] = useState("");
@@ -79,6 +85,8 @@ export default function CraftDetailPage({
       const sourcesData = sourcesRes.ok ? await sourcesRes.json() : [];
       setCraft(craftData);
       setSources(Array.isArray(sourcesData) ? sourcesData : []);
+      setCoverImageUrl(craftData.cover_image_url ?? null);
+      setCoverImageCredit(craftData.cover_image_credit ?? null);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -156,6 +164,29 @@ export default function CraftDetailPage({
       setAutonomousError(e instanceof Error ? e.message : String(e));
     } finally {
       setAutonomousLoading(false);
+    }
+  }
+
+  async function handleFetchCoverImage() {
+    setImageLoading(true);
+    setImageError(null);
+    try {
+      const res = await fetch('/api/crafts/fetch-cover-image', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ craft_item_id: id }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setImageError(data.error ?? '画像の取得に失敗しました');
+        return;
+      }
+      setCoverImageUrl(data.cover_image_url);
+      setCoverImageCredit(data.cover_image_credit);
+    } catch (e) {
+      setImageError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setImageLoading(false);
     }
   }
 
@@ -466,6 +497,45 @@ export default function CraftDetailPage({
                 {addLoading ? "追加中..." : "ソースを追加"}
               </button>
             </form>
+          )}
+        </div>
+
+        {/* Cover image section */}
+        <div className="bg-white border border-stone-100 rounded-2xl p-5 shadow-sm mb-6">
+          <div className="flex items-center justify-between mb-3">
+            <h2 className="text-xs font-medium text-stone-500 uppercase tracking-wide">
+              カバー画像
+            </h2>
+            <button
+              onClick={handleFetchCoverImage}
+              disabled={imageLoading}
+              className="text-xs text-stone-600 hover:text-stone-800 border border-stone-200 rounded-lg px-3 py-1 hover:bg-stone-50 transition-colors disabled:opacity-50"
+            >
+              {imageLoading ? '取得中...' : coverImageUrl ? '再取得' : '画像を自動取得'}
+            </button>
+          </div>
+
+          {imageError && (
+            <p className="text-xs text-red-500 mb-2">{imageError}</p>
+          )}
+
+          {coverImageUrl ? (
+            <div className="space-y-2">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src={coverImageUrl}
+                alt={craft.name_en}
+                className="w-full h-40 object-cover rounded-xl"
+              />
+              {coverImageCredit && (
+                <p className="text-[10px] text-stone-400">{coverImageCredit}</p>
+              )}
+              <p className="text-[10px] text-stone-400 break-all">{coverImageUrl}</p>
+            </div>
+          ) : (
+            <p className="text-sm text-stone-400 text-center py-4">
+              画像未設定 — 「画像を自動取得」でUnsplashから検索します
+            </p>
           )}
         </div>
 

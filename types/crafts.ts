@@ -18,6 +18,8 @@ export interface CraftItem {
   region_en: string | null;
   priority: number;
   status: CraftItemStatus;
+  cover_image_url: string | null;
+  cover_image_credit: string | null;
   created_at: string;
   updated_at: string;
 }
