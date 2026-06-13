@@ -182,10 +182,10 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // 9a. Check for absolute URLs in body_html (internal links must be relative)
-    if (/href\s*=\s*["']https?:\/\//i.test(parsed.body_html)) {
+    // 9a. Only reject Shopify-domain absolute URLs (Sources section may contain external URLs)
+    if (/href\s*=\s*["']https?:\/\/[^"']*myshopify\.com/i.test(parsed.body_html)) {
       return NextResponse.json(
-        { error: 'Generated body_html contains absolute URLs in href attributes. Internal links must use relative paths.' },
+        { error: 'Generated body_html contains absolute Shopify URLs in href attributes.' },
         { status: 400 }
       );
     }
