@@ -2,17 +2,32 @@ import Anthropic from "@anthropic-ai/sdk";
 
 const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
+export class ClaudeOverloadedError extends Error {
+  constructor() {
+    super("Claude APIが混雑しています。数分後に再試行してください。");
+    this.name = "ClaudeOverloadedError";
+  }
+}
+
 export async function callClaude(system: string, user: string): Promise<string> {
-  const message = await client.messages.create({
-    model: "claude-sonnet-4-6",
-    max_tokens: 8000,
-    system,
-    messages: [{ role: "user", content: user }],
-  });
-  return message.content
-    .filter((b) => b.type === "text")
-    .map((b) => (b as { type: "text"; text: string }).text)
-    .join("");
+  try {
+    const message = await client.messages.create({
+      model: "claude-sonnet-4-6",
+      max_tokens: 8000,
+      system,
+      messages: [{ role: "user", content: user }],
+    });
+    return message.content
+      .filter((b) => b.type === "text")
+      .map((b) => (b as { type: "text"; text: string }).text)
+      .join("");
+  } catch (err) {
+    // Anthropic SDK wraps 529 as an APIStatusError with status 529
+    if (err && typeof err === "object" && "status" in err && (err as { status: number }).status === 529) {
+      throw new ClaudeOverloadedError();
+    }
+    throw err;
+  }
 }
 
 export function parseJSON<T>(text: string): T | null {

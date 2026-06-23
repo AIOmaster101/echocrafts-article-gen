@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { readFileSync } from 'fs';
 import { join } from 'path';
 import { createHash } from 'crypto';
-import { callClaude, parseJSON } from '@/lib/claude';
+import { callClaude, parseJSON, ClaudeOverloadedError } from '@/lib/claude';
 import { getSupabaseClient } from '@/lib/supabase';
 import { buildArticleJsonLd, buildFaqJsonLd, buildBreadcrumbJsonLd, embedJsonLd } from '@/lib/crafts-jsonld';
 import type { CraftItem, FaqItem, InternalLink } from '@/types/crafts';
@@ -462,6 +462,9 @@ export async function POST(req: NextRequest) {
       article_id: (upsertedArticle as { id: string }).id,
     });
   } catch (err) {
+    if (err instanceof ClaudeOverloadedError) {
+      return NextResponse.json({ error: err.message }, { status: 503 });
+    }
     console.error('autonomous-generate error:', err);
     return NextResponse.json(
       { error: 'Internal server error', detail: err instanceof Error ? err.message : String(err) },
