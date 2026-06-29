@@ -2,6 +2,7 @@ import { getProductWithData } from "@/lib/supabase";
 import { PhaseProgressBadge } from "@/components/dashboard/PhaseProgressBadge";
 import { notFound } from "next/navigation";
 import { ArticleViewer } from "@/components/dashboard/ArticleViewer";
+import { DistributionPanel } from "@/components/dashboard/DistributionPanel";
 
 export const dynamic = "force-dynamic";
 
@@ -133,6 +134,16 @@ export default async function ProductDetailPage({
           <ArticleViewer
             articles={product.articles}
             themes={product.themes}
+          />
+        )}
+
+        {/* コンテンツ展開 */}
+        {product.articles.some((a) => a.content_en) && (
+          <DistributionPanel
+            articles={product.articles}
+            themes={product.themes}
+            productNameEn={product.name_en ?? ""}
+            productNameJa={product.name_ja ?? ""}
           />
         )}
 
