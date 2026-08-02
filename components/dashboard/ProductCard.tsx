@@ -49,7 +49,6 @@ export function ProductCard({ product }: ProductCardProps) {
         {product.source_type === "craft" && product.craft_item_id && (
           <a
             href={`/admin/crafts/${product.craft_item_id}`}
-            onClick={(e) => e.stopPropagation()}
             className="text-[10px] bg-emerald-50 text-emerald-700 border border-emerald-100 px-2 py-0.5 rounded-full hover:bg-emerald-100 transition-colors"
           >
             工芸品由来 →
