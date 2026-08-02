@@ -30,7 +30,7 @@ Return ONLY valid JSON, no markdown fencing, no text outside the JSON object:
   "schedule": {
     "day0_label": "Notes① — 事実・データ型",
     "day3_label": "Notes② — 問いかけ・反転型",
-    "day7_label": "Medium投稿（全文HTML埋め込み）",
+    "day7_label": "Medium投稿（プレーンテキスト貼り付け）",
     "day10_label": "Notes③ — ストーリー型",
     "newsletter_label": "Substack Newsletter（月2本）"
   }
@@ -38,7 +38,7 @@ Return ONLY valid JSON, no markdown fencing, no text outside the JSON object:
 ```
 
 ## Rules
-1. Medium's `intro_paragraphs` must start with a DIFFERENT sentence/angle than the blog article — if the blog starts with a definition, Medium should start with a story, question, or contrast. Plain text only, no HTML — it gets wrapped into `<p>` tags programmatically.
+1. Medium's `intro_paragraphs` must start with a DIFFERENT sentence/angle than the blog article — if the blog starts with a definition, Medium should start with a story, question, or contrast. Plain text only, no HTML — it gets combined with the rest of the article (also converted to plain text) programmatically.
 2. Newsletter `subject` must NOT repeat the blog title — reframe as an emotional or curiosity hook. Only ONE subject, not multiple options.
 3. `notes.fact` and `notes.question` must NOT include any URL or "→" line themselves — the link (to the Substack Newsletter post, not the MJC blog) is appended automatically after generation. Including your own link here would create a duplicate.
 4. `notes.story` is the one exception: it DOES include its own closing link line, and that line always points to modernjapancrafts.com (the brand domain), never the article URL.

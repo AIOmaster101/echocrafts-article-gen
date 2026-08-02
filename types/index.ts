@@ -101,7 +101,8 @@ export interface DistributionContent {
   mjc_url: string;
   substack_url: string;
   medium: {
-    full_html: string; // Medium のHTML埋め込みにそのまま貼り付けられる記事全文
+    title: string; // Medium投稿のタイトル（別枠でコピー）
+    body: string;  // 記事全文のプレーンテキスト（HTMLタグなし、そのままコピー可）
   };
   newsletter: {
     subject: string;

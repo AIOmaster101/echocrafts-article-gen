@@ -218,9 +218,14 @@ export function DistributionPanel({ articles, themes, productNameEn, productName
           <div className="space-y-4">
             {activeTab === "medium" && (
               <>
-                <ContentBlock label="記事全文（HTML埋め込み用）" text={distribution.medium.full_html} />
+                <div className="flex items-center gap-2 p-3 bg-stone-50 rounded-xl">
+                  <span className="text-[10px] text-stone-400 flex-shrink-0 w-12">タイトル</span>
+                  <span className="text-sm text-stone-800 flex-1">{distribution.medium.title}</span>
+                  <CopyButton text={distribution.medium.title} />
+                </div>
+                <ContentBlock label="本文（そのままコピー可）" text={distribution.medium.body} />
                 <div className="text-xs text-stone-400 p-3 bg-amber-50 rounded-xl border border-amber-100">
-                  ⚠️ MJCブログ公開から <strong>7〜14日後</strong> に投稿 ／ MediumのHTML埋め込みブロックに貼り付け ／ 詳細設定の Canonical URL にも {distribution.mjc_url} を設定してください
+                  ⚠️ MJCブログ公開から <strong>7〜14日後</strong> に投稿 ／ Medium詳細設定の Canonical URL に {distribution.mjc_url} を設定してください
                 </div>
               </>
             )}
