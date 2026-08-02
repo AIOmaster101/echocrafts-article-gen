@@ -96,6 +96,32 @@ export interface ThemeRow extends Theme {
   is_customized: boolean;
 }
 
+// コンテンツ展開（Medium・Substack Newsletter・Notes）の生成結果
+export interface DistributionContent {
+  mjc_url: string;
+  substack_url: string;
+  medium: {
+    full_html: string; // Medium のHTML埋め込みにそのまま貼り付けられる記事全文
+  };
+  newsletter: {
+    subject: string;
+    subtitle: string;
+    body: string;
+  };
+  notes: {
+    fact: string;
+    question: string;
+    story: string;
+  };
+  schedule: {
+    day0_label: string;
+    day3_label: string;
+    day7_label: string;
+    day10_label: string;
+    newsletter_label: string;
+  };
+}
+
 export interface ArticleRow {
   id: string;
   created_at: string;
@@ -106,6 +132,7 @@ export interface ArticleRow {
   interview_answers: string | null;
   sources: Source[];
   has_interview: boolean;
+  distribution_content?: DistributionContent | null;
 }
 
 export interface ProductWithData extends ProductRow {

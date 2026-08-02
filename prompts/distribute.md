@@ -15,23 +15,22 @@ Return ONLY valid JSON, no markdown fencing, no text outside the JSON object:
 {
   "mjc_url": "string — the provided MJC URL (copy exactly)",
   "medium": {
-    "intro": "string — 2 paragraphs, DIFFERENT opening angle from the blog article. Same facts, completely different hook. Max 200 words.",
-    "canonical_note": "string — always exactly: 'Originally published at [Modern Japan Crafts](MJC_URL_HERE)' with the actual URL"
+    "intro_paragraphs": ["string×2 — a rewritten opening for Medium, DIFFERENT angle from the blog article. Same facts, completely different hook (story, question, or contrast — never a definition if the blog opened with one). Two separate paragraph strings, no HTML tags, max 200 words total."]
   },
   "newsletter": {
-    "subjects": ["string×3 — 3 subject line options, each under 40 chars, emotional/curiosity-driven, NOT the blog title"],
-    "intro": "string — 3-5 lines starting from a personal episode, fieldwork, KS backer story, or artisan encounter. First person. 150 words max.",
-    "body": "string — 1 paragraph compressing the blog's core insight (100-150 words), then 'Read the full piece → MJC_URL_HERE'"
+    "subject": "string — ONE subject line, under 40 chars, emotional/curiosity-driven, NOT the blog title",
+    "subtitle": "string — one sentence, under 150 chars, the Substack preview/subtitle text that appears under the subject line",
+    "body": "string — the FULL newsletter body as one piece of plain text (no HTML): start with 3-5 lines of a personal episode, fieldwork moment, KS backer story, or artisan encounter (first person), then flow directly into 1 paragraph (100-150 words) compressing the blog's core insight, then end with a new line 'Read the full piece → MJC_URL_HERE'."
   },
   "notes": {
-    "fact": "string — Note ①: fact/data type. 1-2 surprising facts, 1-2 lines of context, blank line, then '→ MJC_URL_HERE'. Under 300 chars total.",
-    "question": "string — Note ②: question/reversal type. State a common assumption (1 line), flip it with truth (1-2 lines), blank line, 'Here\\'s how to tell the difference.\\n→ MJC_URL_HERE'. Under 300 chars.",
-    "story": "string — Note ③: story type. 3-5 lines of personal story related to the craft/Japan, blank line, 'That\\'s why I write about Japanese craft.\\n→ modernjapancrafts.com'. Under 300 chars."
+    "fact": "string — Note ①: fact/data type. 1-2 surprising facts, 1-2 lines of context. Do NOT add a trailing link — it is appended automatically. Under 250 chars.",
+    "question": "string — Note ②: question/reversal type. State a common assumption (1 line), flip it with the truth (1-2 lines), blank line, then the line 'Here's how to tell the difference.'. Do NOT add a trailing link — it is appended automatically. Under 250 chars.",
+    "story": "string — Note ③: story type. 3-5 lines of personal story related to the craft/Japan, blank line, then exactly 'That's why I write about Japanese craft.\\n→ modernjapancrafts.com'. Under 300 chars total."
   },
   "schedule": {
     "day0_label": "Notes① — 事実・データ型",
     "day3_label": "Notes② — 問いかけ・反転型",
-    "day7_label": "Medium投稿（書き出しリライト）",
+    "day7_label": "Medium投稿（全文HTML埋め込み）",
     "day10_label": "Notes③ — ストーリー型",
     "newsletter_label": "Substack Newsletter（月2本）"
   }
@@ -39,9 +38,10 @@ Return ONLY valid JSON, no markdown fencing, no text outside the JSON object:
 ```
 
 ## Rules
-1. Medium intro must start with a DIFFERENT sentence/angle than the blog article — if the blog starts with a definition, Medium should start with a story, question, or contrast
-2. Newsletter subjects must NOT repeat the blog title — reframe as emotional or curiosity hooks
-3. Notes must be SHORT — each under 300 characters including the URL
-4. Replace MJC_URL_HERE literally with the provided mjc_url value
-5. Story note (③) always ends with modernjapancrafts.com, not the article URL
-6. Return ONLY the JSON object
+1. Medium's `intro_paragraphs` must start with a DIFFERENT sentence/angle than the blog article — if the blog starts with a definition, Medium should start with a story, question, or contrast. Plain text only, no HTML — it gets wrapped into `<p>` tags programmatically.
+2. Newsletter `subject` must NOT repeat the blog title — reframe as an emotional or curiosity hook. Only ONE subject, not multiple options.
+3. `notes.fact` and `notes.question` must NOT include any URL or "→" line themselves — the link (to the Substack Newsletter post, not the MJC blog) is appended automatically after generation. Including your own link here would create a duplicate.
+4. `notes.story` is the one exception: it DOES include its own closing link line, and that line always points to modernjapancrafts.com (the brand domain), never the article URL.
+5. Write the literal placeholder text `MJC_URL_HERE` inside `newsletter.body` exactly where the link belongs — do NOT substitute the real URL yourself, it is replaced automatically after generation.
+6. Each Note must be SHORT — well under the character limits given, since the appended link adds more length.
+7. Return ONLY the JSON object.

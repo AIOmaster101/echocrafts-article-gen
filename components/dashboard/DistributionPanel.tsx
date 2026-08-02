@@ -1,21 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import type { ArticleRow, ThemeRow } from "@/types";
-
-interface DistributionContent {
-  mjc_url: string;
-  medium: { intro: string; canonical_note: string };
-  newsletter: { subjects: string[]; intro: string; body: string };
-  notes: { fact: string; question: string; story: string };
-  schedule: {
-    day0_label: string;
-    day3_label: string;
-    day7_label: string;
-    day10_label: string;
-    newsletter_label: string;
-  };
-}
+import type { ArticleRow, ThemeRow, DistributionContent } from "@/types";
 
 interface Props {
   articles: ArticleRow[];
@@ -84,7 +70,7 @@ export function DistributionPanel({ articles, themes, productNameEn, productName
   const [error, setError] = useState<string | null>(null);
   const [distribution, setDistribution] = useState<DistributionContent | null>(() => {
     const found = completedArticles.find((a) => a.theme_index === selectedIndex);
-    return (found as (ArticleRow & { distribution_content?: DistributionContent }) | undefined)?.distribution_content ?? null;
+    return found?.distribution_content ?? null;
   });
   const [activeTab, setActiveTab] = useState<"medium" | "newsletter" | "notes" | "schedule">("medium");
 
@@ -96,9 +82,7 @@ export function DistributionPanel({ articles, themes, productNameEn, productName
   function handleSelectArticle(idx: number) {
     setSelectedIndex(idx);
     setError(null);
-    const art = completedArticles.find((a) => a.theme_index === idx) as
-      | (ArticleRow & { distribution_content?: DistributionContent })
-      | undefined;
+    const art = completedArticles.find((a) => a.theme_index === idx);
     setDistribution(art?.distribution_content ?? null);
   }
 
@@ -193,11 +177,21 @@ export function DistributionPanel({ articles, themes, productNameEn, productName
       {/* Results */}
       {distribution && (
         <div>
-          {/* MJC URL */}
-          <div className="mb-5 flex items-center gap-2 p-3 bg-emerald-50 border border-emerald-100 rounded-xl">
-            <span className="text-[10px] font-semibold text-emerald-600 flex-shrink-0">MJC URL</span>
-            <span className="text-xs text-emerald-800 truncate flex-1">{distribution.mjc_url}</span>
-            <CopyButton text={distribution.mjc_url} />
+          {/* MJC URL / Substack URL */}
+          <div className="mb-5 space-y-2">
+            <div className="flex items-center gap-2 p-3 bg-emerald-50 border border-emerald-100 rounded-xl">
+              <span className="text-[10px] font-semibold text-emerald-600 flex-shrink-0">MJC URL</span>
+              <span className="text-xs text-emerald-800 truncate flex-1">{distribution.mjc_url}</span>
+              <CopyButton text={distribution.mjc_url} />
+            </div>
+            <div className="flex items-center gap-2 p-3 bg-orange-50 border border-orange-100 rounded-xl">
+              <span className="text-[10px] font-semibold text-orange-600 flex-shrink-0">Substack URL</span>
+              <span className="text-xs text-orange-800 truncate flex-1">{distribution.substack_url}</span>
+              <CopyButton text={distribution.substack_url} />
+            </div>
+            <p className="text-[10px] text-stone-400">
+              ※ Substack URLは推定値です。Newsletterを実際に公開した後、Substackが発行する正式なURL（末尾に <code>?r=...</code> が付くことがあります）と一致するか確認してください。
+            </p>
           </div>
 
           {/* Tabs */}
@@ -224,36 +218,32 @@ export function DistributionPanel({ articles, themes, productNameEn, productName
           <div className="space-y-4">
             {activeTab === "medium" && (
               <>
-                <ContentBlock label="書き出し（冒頭リライト）" text={distribution.medium.intro} />
-                <ContentBlock label="末尾クレジット" text={distribution.medium.canonical_note} />
+                <ContentBlock label="記事全文（HTML埋め込み用）" text={distribution.medium.full_html} />
                 <div className="text-xs text-stone-400 p-3 bg-amber-50 rounded-xl border border-amber-100">
-                  ⚠️ MJCブログ公開から <strong>7〜14日後</strong> に投稿 ／ Canonical URL を必ず設定してください
+                  ⚠️ MJCブログ公開から <strong>7〜14日後</strong> に投稿 ／ MediumのHTML埋め込みブロックに貼り付け ／ 詳細設定の Canonical URL にも {distribution.mjc_url} を設定してください
                 </div>
               </>
             )}
 
             {activeTab === "newsletter" && (
               <>
-                <div className="space-y-1.5">
-                  <span className="text-[10px] font-semibold text-stone-400 uppercase tracking-wide">件名案（3パターン）</span>
-                  <div className="space-y-2">
-                    {distribution.newsletter.subjects.map((s, i) => (
-                      <div key={i} className="flex items-center gap-2 p-3 bg-stone-50 rounded-xl">
-                        <span className="text-[10px] text-stone-400 flex-shrink-0">案{i + 1}</span>
-                        <span className="text-sm text-stone-800 flex-1">{s}</span>
-                        <CopyButton text={s} />
-                      </div>
-                    ))}
-                  </div>
+                <div className="flex items-center gap-2 p-3 bg-stone-50 rounded-xl">
+                  <span className="text-[10px] text-stone-400 flex-shrink-0 w-12">件名</span>
+                  <span className="text-sm text-stone-800 flex-1">{distribution.newsletter.subject}</span>
+                  <CopyButton text={distribution.newsletter.subject} />
                 </div>
-                <ContentBlock label="書き出し（個人エピソード）" text={distribution.newsletter.intro} />
-                <ContentBlock label="本文 + URLリンク" text={distribution.newsletter.body} />
+                <div className="flex items-center gap-2 p-3 bg-stone-50 rounded-xl">
+                  <span className="text-[10px] text-stone-400 flex-shrink-0 w-12">サブタイトル</span>
+                  <span className="text-sm text-stone-800 flex-1">{distribution.newsletter.subtitle}</span>
+                  <CopyButton text={distribution.newsletter.subtitle} />
+                </div>
+                <ContentBlock label="本文（そのままコピー可）" text={distribution.newsletter.body} />
               </>
             )}
 
             {activeTab === "notes" && (
               <>
-                <div className="text-xs text-stone-400 mb-2">各Note は 300文字以内 / URLは末尾のみ</div>
+                <div className="text-xs text-stone-400 mb-2">各Note は300文字前後 / ①②はSubstack Newsletter記事へ、③はmodernjapancrafts.comへリンク</div>
                 <ContentBlock label="① Day 0 — 事実・データ型" text={distribution.notes.fact} />
                 <ContentBlock label="② Day 3 — 問いかけ・反転型" text={distribution.notes.question} />
                 <ContentBlock label="③ Day 10 — ストーリー型" text={distribution.notes.story} />
