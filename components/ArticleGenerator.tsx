@@ -3,7 +3,9 @@
 import { useState, useCallback } from "react";
 import { Stepper } from "./Stepper";
 import { Card, ScoreBar, TierTag, Spinner } from "./ui";
-import type { ProductInfo, Theme, Questions, Source, Article, Q1Value, Q2Value, ArticleGeneratorInitialState } from "@/types";
+import { buildArticleSources } from "@/lib/article-sources";
+import type { ProductInfo, Theme, Questions, Source, Article, Q1Value, Q2Value, ArticleGeneratorInitialState, SourceType, CraftSourceRef } from "@/types";
+import type { CraftItem } from "@/types/crafts";
 
 function toErrorMessage(e: unknown, fallback: string): string {
   if (e instanceof Error) return e.message;
@@ -34,7 +36,10 @@ function BackButton({ onClick }: { onClick: () => void }) {
   );
 }
 
-export function ArticleGenerator({ initialState }: { initialState?: ArticleGeneratorInitialState } = {}) {
+export function ArticleGenerator({
+  initialState,
+  craftItems = [],
+}: { initialState?: ArticleGeneratorInitialState; craftItems?: CraftItem[] } = {}) {
   const [phase, setPhase] = useState(initialState?.phase ?? 0);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -43,6 +48,13 @@ export function ArticleGenerator({ initialState }: { initialState?: ArticleGener
   const [urls, setUrls] = useState(initialState?.urls ?? "");
   const [q1, setQ1] = useState<Q1Value | "">(initialState?.q1 ?? "");
   const [q2, setQ2] = useState<Q2Value | "">(initialState?.q2 ?? "");
+
+  // 情報源モード: 商品URLから作成 or 工芸百科事典の品目から派生記事を作成
+  const [sourceMode, setSourceMode] = useState<SourceType>(initialState?.sourceType ?? "url");
+  const [selectedCraftItemId, setSelectedCraftItemId] = useState(initialState?.craftItemId ?? "");
+  const [craftFilter, setCraftFilter] = useState("");
+  const [craftSlug, setCraftSlug] = useState(initialState?.craftSlug ?? "");
+  const [craftSources, setCraftSources] = useState<CraftSourceRef[]>(initialState?.craftSources ?? []);
 
   // DB tracking
   const [productId, setProductId] = useState<string | undefined>(initialState?.productId);
@@ -91,7 +103,9 @@ export function ArticleGenerator({ initialState }: { initialState?: ArticleGener
     product: ProductInfo,
     answers: string,
     currentProductId?: string,
-    currentThemeIds?: string[]
+    currentThemeIds?: string[],
+    currentCraftSlug?: string,
+    currentCraftSources?: CraftSourceRef[]
   ) {
     setArticleStatus(prev => { const s = [...prev]; s[index] = "generating"; return s; });
 
@@ -108,6 +122,8 @@ export function ArticleGenerator({ initialState }: { initialState?: ArticleGener
           productId: currentProductId,
           themeId: currentThemeIds?.[index],
           themeIndex: index,
+          craftSlug: currentCraftSlug,
+          craftSources: currentCraftSources,
         }),
       });
       const data = await res.json();
@@ -154,46 +170,56 @@ export function ArticleGenerator({ initialState }: { initialState?: ArticleGener
     product: ProductInfo,
     answers: string,
     currentProductId?: string,
-    currentThemeIds?: string[]
+    currentThemeIds?: string[],
+    currentCraftSlug?: string,
+    currentCraftSources?: CraftSourceRef[]
   ) {
     for (let i = 0; i < themesToGen.length; i++) {
-      await generateSingleArticle(i, themesToGen, product, answers, currentProductId, currentThemeIds);
+      await generateSingleArticle(i, themesToGen, product, answers, currentProductId, currentThemeIds, currentCraftSlug, currentCraftSources);
     }
   }
 
-  // sources の共通組み立て
-  function buildSources(product: ProductInfo, answers: string): Source[] {
-    const hasInterview = answers.trim().length > 0;
-    const src: Source[] = [];
-    if (hasInterview) src.push({ tier: "Tier 1", source: `${product.artisan || "職人"}インタビュー`, note: "一次情報（独自取材）" });
-    src.push(
-      { tier: "Tier 1", source: product.artisan ? `${product.artisan} 公式ショップ` : "商品ページ", note: "商品仕様・価格・職人情報" },
-      { tier: "Tier 2", source: "Encyclopaedia Britannica", note: "技法の定義・歴史的背景" },
-      { tier: "Tier 2", source: "ResearchGate / 学術論文", note: "材料の化学的性質・耐久性データ" },
-      { tier: "Tier 3", source: "Musubi Kiln Journal", note: "伝統工芸のケア・使用方法" },
-      { tier: "Tier 4", source: "Amazon / eBay レビュー", note: "購買者の視点・競合商品情報" }
-    );
-    return src;
+  // Phase0の入力が揃っているか（モードごとに必須項目が異なる）
+  const phase0Ready = sourceMode === "craft" ? !!selectedCraftItemId && !!q1 && !!q2 : !!urls.trim() && !!q1 && !!q2;
+
+  // 情報源に応じて抽出APIを呼び分ける
+  async function runExtract(): Promise<{ product: ProductInfo & { productId?: string; craftSlug?: string; craftSources?: CraftSourceRef[] } }> {
+    if (sourceMode === "craft") {
+      const res = await fetch("/api/extract-from-craft", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ craftItemId: selectedCraftItemId }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(apiError(data, "工芸品情報の抽出に失敗しました"));
+      return { product: data };
+    }
+    const res = await fetch("/api/extract", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ urls: urlList }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(apiError(data, "商品情報の抽出に失敗しました"));
+    return { product: data };
   }
 
   // ── ワンクリック生成（Step1→Step5）────────────────────────────
   async function handleOneClick() {
-    if (!urls.trim() || !q1 || !q2) return;
+    if (!phase0Ready) return;
     setGenerating(true);
     setError("");
     try {
       // 1. 抽出
-      setGenerateProgress("商品情報を抽出中...");
-      const extractRes = await fetch("/api/extract", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ urls: urlList }),
-      });
-      const product = await extractRes.json();
-      if (!extractRes.ok) throw new Error(apiError(product, "商品情報の抽出に失敗しました"));
+      setGenerateProgress(sourceMode === "craft" ? "工芸品情報を読み込み中..." : "商品情報を抽出中...");
+      const { product } = await runExtract();
       setProductInfo(product);
       const newProductId: string | undefined = product.productId;
       if (newProductId) setProductId(newProductId);
+      const newCraftSlug = product.craftSlug ?? "";
+      const newCraftSources = product.craftSources ?? [];
+      setCraftSlug(newCraftSlug);
+      setCraftSources(newCraftSources);
 
       // 2. スコアリング
       setGenerateProgress("テーマをスコアリング中...");
@@ -215,9 +241,9 @@ export function ArticleGenerator({ initialState }: { initialState?: ArticleGener
       setArticleStatus(new Array(scoredThemes.length).fill("idle"));
       setActiveArticleIndex(0);
       setArticleLang("en");
-      setSources(buildSources(product, ""));
+      setSources(buildArticleSources({ productInfo: product, interviewAnswers: "", craftSources: newCraftSources }));
       setPhase(4);
-      await generateAllSequential(scoredThemes, product, "", newProductId, newThemeIds);
+      await generateAllSequential(scoredThemes, product, "", newProductId, newThemeIds, newCraftSlug, newCraftSources);
     } catch (e) {
       setError(toErrorMessage(e, "エラーが発生しました"));
     } finally {
@@ -228,17 +254,13 @@ export function ArticleGenerator({ initialState }: { initialState?: ArticleGener
 
   // ── 通常フロー ─────────────────────────────────────────────────
   async function handleExtract() {
-    if (!urls.trim() || !q1 || !q2) return;
+    if (!phase0Ready) return;
     await run(async () => {
-      const res = await fetch("/api/extract", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ urls: urlList }),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(apiError(data, "商品情報の抽出に失敗しました"));
-      setProductInfo(data);
-      if (data.productId) setProductId(data.productId);
+      const { product } = await runExtract();
+      setProductInfo(product);
+      if (product.productId) setProductId(product.productId);
+      setCraftSlug(product.craftSlug ?? "");
+      setCraftSources(product.craftSources ?? []);
       setPhase(1);
     });
   }
@@ -326,10 +348,10 @@ export function ArticleGenerator({ initialState }: { initialState?: ArticleGener
     setArticleStatus(new Array(themes.length).fill("idle"));
     setActiveArticleIndex(0);
     setArticleLang("en");
-    setSources(buildSources(productInfo, interviewAnswers));
+    setSources(buildArticleSources({ productInfo, interviewAnswers, craftSources }));
     setPhase(4);
     try {
-      await generateAllSequential(themes, productInfo, interviewAnswers, productId, themeIds);
+      await generateAllSequential(themes, productInfo, interviewAnswers, productId, themeIds, craftSlug, craftSources);
     } catch (e) {
       setError(toErrorMessage(e, "エラーが発生しました"));
     } finally {
@@ -346,6 +368,8 @@ export function ArticleGenerator({ initialState }: { initialState?: ArticleGener
 
   function reset() {
     setPhase(0); setUrls(""); setQ1(""); setQ2("");
+    setSourceMode("url"); setSelectedCraftItemId(""); setCraftFilter("");
+    setCraftSlug(""); setCraftSources([]);
     setProductId(undefined); setThemeIds([]);
     setProductInfo(null); setThemes([]); setQuestions(null);
     setCustomizationInstruction(""); setInterviewAnswers("");
@@ -370,7 +394,7 @@ export function ArticleGenerator({ initialState }: { initialState?: ArticleGener
             </div>
             <h1 className="text-xl font-medium text-stone-800 tracking-tight">EchoCrafts Article Generator</h1>
           </div>
-          <p className="text-sm text-stone-500 ml-11">商品URLから記事テーマ選定・職人質問生成・英日記事制作まで</p>
+          <p className="text-sm text-stone-500 ml-11">商品URL、または工芸品目からテーマ選定・職人質問生成・英日記事制作まで</p>
         </div>
 
         <Stepper phase={phase} />
@@ -383,17 +407,68 @@ export function ArticleGenerator({ initialState }: { initialState?: ArticleGener
         {phase === 0 && (
           <div className="space-y-4">
             <Card>
-              <h2 className="text-base font-medium text-stone-800 mb-5">商品情報を入力</h2>
+              <h2 className="text-base font-medium text-stone-800 mb-5">記事の情報源を入力</h2>
               <div className="space-y-5">
-                <div>
-                  <label className="block text-xs font-medium text-stone-600 mb-1.5">商品URL <span className="text-red-400">*</span></label>
-                  <textarea
-                    className="w-full h-24 text-sm border border-stone-200 rounded-xl px-3 py-2.5 resize-none focus:outline-none focus:ring-2 focus:ring-stone-300 bg-white"
-                    placeholder={"https://example.com/product/123\n複数の場合は改行で区切ってください"}
-                    value={urls}
-                    onChange={(e) => setUrls(e.target.value)}
-                  />
+                {/* 情報源モード切り替え */}
+                <div className="flex gap-1 bg-stone-100 p-1 rounded-xl">
+                  {([
+                    ["url", "商品URLから作成"],
+                    ["craft", "工芸品から派生記事を作成"],
+                  ] as [SourceType, string][]).map(([mode, label]) => (
+                    <button
+                      key={mode}
+                      onClick={() => setSourceMode(mode)}
+                      className={`flex-1 py-2 text-sm rounded-lg transition-all ${sourceMode === mode ? "bg-white shadow-sm text-stone-800 font-medium" : "text-stone-500"}`}
+                    >
+                      {label}
+                    </button>
+                  ))}
                 </div>
+
+                {sourceMode === "url" ? (
+                  <div>
+                    <label className="block text-xs font-medium text-stone-600 mb-1.5">商品URL <span className="text-red-400">*</span></label>
+                    <textarea
+                      className="w-full h-24 text-sm border border-stone-200 rounded-xl px-3 py-2.5 resize-none focus:outline-none focus:ring-2 focus:ring-stone-300 bg-white"
+                      placeholder={"https://example.com/product/123\n複数の場合は改行で区切ってください"}
+                      value={urls}
+                      onChange={(e) => setUrls(e.target.value)}
+                    />
+                  </div>
+                ) : (
+                  <div>
+                    <label className="block text-xs font-medium text-stone-600 mb-1.5">工芸品 <span className="text-red-400">*</span></label>
+                    <p className="text-xs text-stone-400 mb-2">工芸百科事典にファクトが登録済みの品目から選べます</p>
+                    <input
+                      type="text"
+                      className="w-full text-sm border border-stone-200 rounded-xl px-3 py-2 mb-2 focus:outline-none focus:ring-2 focus:ring-stone-300 bg-white"
+                      placeholder="品目名で絞り込み..."
+                      value={craftFilter}
+                      onChange={(e) => setCraftFilter(e.target.value)}
+                    />
+                    <select
+                      className="w-full h-11 text-sm border border-stone-200 rounded-xl px-3 focus:outline-none focus:ring-2 focus:ring-stone-300 bg-white"
+                      value={selectedCraftItemId}
+                      onChange={(e) => setSelectedCraftItemId(e.target.value)}
+                    >
+                      <option value="">選択してください（{craftItems.length}件）</option>
+                      {craftItems
+                        .filter((c) => {
+                          const q = craftFilter.trim().toLowerCase();
+                          if (!q) return true;
+                          return c.name_ja.toLowerCase().includes(q) || c.name_en.toLowerCase().includes(q);
+                        })
+                        .map((c) => (
+                          <option key={c.id} value={c.id}>
+                            {c.name_ja}（{c.name_en}）
+                          </option>
+                        ))}
+                    </select>
+                    {craftItems.length === 0 && (
+                      <p className="text-xs text-amber-600 mt-2">ファクトが登録済みの工芸品がまだありません。先に工芸百科事典側でファクトを収集してください。</p>
+                    )}
+                  </div>
+                )}
 
                 <div>
                   <label className="block text-xs font-medium text-stone-600 mb-2">Q1. 職人・工房への一次取材はできますか？ <span className="text-red-400">*</span></label>
@@ -440,10 +515,10 @@ export function ArticleGenerator({ initialState }: { initialState?: ArticleGener
                   </div>
                   <button
                     onClick={handleOneClick}
-                    disabled={generating || !urls.trim() || !q1 || !q2}
+                    disabled={generating || !phase0Ready}
                     className="w-full py-3 bg-stone-800 text-white text-sm font-medium rounded-xl disabled:opacity-40 hover:bg-stone-700 transition-all"
                   >
-                    {generating ? (generateProgress || "生成中...") : "URLを入力して4本まとめて生成 →"}
+                    {generating ? (generateProgress || "生成中...") : sourceMode === "craft" ? "工芸品から4本まとめて生成 →" : "URLを入力して4本まとめて生成 →"}
                   </button>
                 </div>
 
@@ -453,9 +528,9 @@ export function ArticleGenerator({ initialState }: { initialState?: ArticleGener
                   <div className="flex-1 h-px bg-stone-200" />
                 </div>
 
-                <button onClick={handleExtract} disabled={loading || !urls.trim() || !q1 || !q2}
+                <button onClick={handleExtract} disabled={loading || !phase0Ready}
                   className="w-full py-3 border border-stone-300 text-stone-700 text-sm font-medium rounded-xl disabled:opacity-40 hover:bg-stone-50 transition-all">
-                  {loading ? "抽出中..." : "商品情報を抽出する（ステップごと）→"}
+                  {loading ? "抽出中..." : sourceMode === "craft" ? "工芸品情報を読み込む（ステップごと）→" : "商品情報を抽出する（ステップごと）→"}
                 </button>
               </div>
             </Card>
@@ -475,7 +550,7 @@ export function ArticleGenerator({ initialState }: { initialState?: ArticleGener
                 {([
                   ["商品名（日本語）", productInfo.name_ja],
                   ["商品名（英語候補）", productInfo.name_en],
-                  ["価格", `¥${productInfo.price_jpy?.toLocaleString()} ≈ $${productInfo.price_usd}`],
+                  ["価格", productInfo.price_jpy ? `¥${productInfo.price_jpy.toLocaleString()} ≈ $${productInfo.price_usd}` : ""],
                   ["産地・工房", productInfo.origin],
                   ["職人名", productInfo.artisan],
                   ["上位カテゴリ", productInfo.category_en],
@@ -667,7 +742,7 @@ export function ArticleGenerator({ initialState }: { initialState?: ArticleGener
                   onClick={() => {
                     setGenerating(true);
                     setError("");
-                    generateAllSequential(themes, productInfo!, interviewAnswers, productId, themeIds)
+                    generateAllSequential(themes, productInfo!, interviewAnswers, productId, themeIds, craftSlug, craftSources)
                       .finally(() => setGenerating(false));
                   }}
                   className="text-xs px-3 py-1.5 bg-stone-800 text-white rounded-lg hover:bg-stone-700"
@@ -698,7 +773,7 @@ export function ArticleGenerator({ initialState }: { initialState?: ArticleGener
                       <button
                         onClick={() => {
                           setError("");
-                          generateSingleArticle(i, themes, productInfo!, interviewAnswers, productId, themeIds);
+                          generateSingleArticle(i, themes, productInfo!, interviewAnswers, productId, themeIds, craftSlug, craftSources);
                         }}
                         disabled={generating}
                         className="flex-shrink-0 text-xs px-3 py-1.5 bg-stone-800 text-white rounded-lg hover:bg-stone-700 disabled:opacity-40"
@@ -725,7 +800,7 @@ export function ArticleGenerator({ initialState }: { initialState?: ArticleGener
                       <button
                         onClick={() => {
                           setError("");
-                          generateSingleArticle(i, themes, productInfo!, interviewAnswers, productId, themeIds);
+                          generateSingleArticle(i, themes, productInfo!, interviewAnswers, productId, themeIds, craftSlug, craftSources);
                         }}
                         className="flex-shrink-0 text-xs px-3 py-1.5 bg-red-50 text-red-600 border border-red-200 rounded-lg hover:bg-red-100"
                       >

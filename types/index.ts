@@ -54,6 +54,14 @@ export interface Article {
 
 export type Q1Value = "interview_yes" | "interview_email" | "interview_no";
 export type Q2Value = "position_definition" | "position_gift" | "position_auto";
+export type SourceType = "url" | "craft";
+
+// 工芸品由来の派生記事作成で使う実出典（craft_sources由来）
+export interface CraftSourceRef {
+  publisher: string | null;
+  url: string;
+  tier: 1 | 2;
+}
 
 // DB row types
 export interface ProductRow {
@@ -76,6 +84,8 @@ export interface ProductRow {
   keywords: string[] | null;
   similar_products: string[] | null;
   key_differentiator: string | null;
+  craft_item_id: string | null;
+  source_type: SourceType;
 }
 
 export interface ThemeRow extends Theme {
@@ -113,4 +123,8 @@ export interface ArticleGeneratorInitialState {
   productInfo?: ProductInfo;
   themes?: Theme[];
   questions?: Questions;
+  sourceType?: SourceType;
+  craftItemId?: string;
+  craftSlug?: string;
+  craftSources?: CraftSourceRef[];
 }

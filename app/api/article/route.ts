@@ -2,9 +2,10 @@ export const maxDuration = 60;
 
 import { callClaude } from "@/lib/claude";
 import { saveArticle, updateProductInfo } from "@/lib/supabase";
-import { Theme, ProductInfo, Source } from "@/types";
+import { buildArticleSources } from "@/lib/article-sources";
+import { Theme, ProductInfo, CraftSourceRef } from "@/types";
 
-const SYSTEM_EN = `You are an expert content writer specializing in Japanese traditional crafts for international audiences.
+const SYSTEM_EN_BASE = `You are an expert content writer specializing in Japanese traditional crafts for international audiences.
 Write a detailed, SEO-optimized blog article in English that follows AIO (AI Overview Optimization) best practices.
 
 IMPORTANT: Output valid HTML only (no markdown). Use these tags:
@@ -29,7 +30,20 @@ IMPORTANT: Output valid HTML only. Preserve the same HTML structure (<h1>, <h2>,
 - 専門用語は日本語で自然に説明する
 - 日本人読者が「当然知っている」背景情報は省略してよい`;
 
-function buildReferencesHtml(urls: string[], productInfo: ProductInfo): string {
+function buildSystemEn(craftSlug?: string): string {
+  if (!craftSlug) return SYSTEM_EN_BASE;
+  return `${SYSTEM_EN_BASE}
+
+Internal linking: This article is derived from the craft encyclopedia entry at /blogs/crafts/${craftSlug}. Naturally place exactly one <a href="/blogs/crafts/${craftSlug}">...</a> link within the body (not in the FAQ or references section) using the craft name or a relevant phrase as anchor text.`;
+}
+
+function buildReferencesHtml(urls: string[], productInfo: ProductInfo, craftSources?: CraftSourceRef[]): string {
+  if (urls.length === 0 && craftSources && craftSources.length > 0) {
+    const links = craftSources
+      .map((s) => `<li><a href="${s.url}" target="_blank" rel="noopener noreferrer">${s.publisher || s.url}</a></li>`)
+      .join("\n");
+    return `\n<h2>References</h2>\n<ul>\n${links}\n</ul>`;
+  }
   const links = urls
     .map((url) => `<li><a href="${url}" target="_blank" rel="noopener noreferrer">${productInfo.name_en || url}</a></li>`)
     .join("\n");
@@ -40,7 +54,9 @@ async function generateArticle(
   theme: Theme,
   productInfo: ProductInfo,
   interviewAnswers: string,
-  urls: string[]
+  urls: string[],
+  craftSlug?: string,
+  craftSources?: CraftSourceRef[]
 ): Promise<{ contentEn: string; rawEn: string; refsHtml: string }> {
   const hasInterview = interviewAnswers?.trim().length > 0;
   const interviewSection = hasInterview
@@ -53,8 +69,8 @@ async function generateArticle(
 AIO差別化ポイント: ${theme.key_blank}
 参照すべき情報源階層: Tier1（一次情報）→ Tier2（学術・公的機関）→ Tier3（専門メディア）→ Tier4（一般メディア）の優先順`;
 
-  const rawEn = await callClaude(SYSTEM_EN, userMsg);
-  const refsHtml = buildReferencesHtml(urls, productInfo);
+  const rawEn = await callClaude(buildSystemEn(craftSlug), userMsg);
+  const refsHtml = buildReferencesHtml(urls, productInfo, craftSources);
   const contentEn = rawEn + refsHtml;
   // 日本語は /api/article/translate で別途生成（タイムアウト対策）
   return { contentEn, rawEn, refsHtml };
@@ -70,24 +86,24 @@ export async function POST(req: Request) {
       productId,
       themeId,
       themeIndex,
-    }: { themes: Theme[]; productInfo: ProductInfo; interviewAnswers: string; urls: string[]; productId?: string; themeId?: string; themeIndex?: number } = await req.json();
+      craftSlug,
+      craftSources,
+    }: {
+      themes: Theme[];
+      productInfo: ProductInfo;
+      interviewAnswers: string;
+      urls: string[];
+      productId?: string;
+      themeId?: string;
+      themeIndex?: number;
+      craftSlug?: string;
+      craftSources?: CraftSourceRef[];
+    } = await req.json();
 
-    const hasInterview = interviewAnswers?.trim().length > 0;
-    const sources: Source[] = [];
-    if (hasInterview) {
-      sources.push({ tier: "Tier 1", source: `${productInfo.artisan || "職人"}インタビュー`, note: "一次情報（独自取材）" });
-    }
-    sources.push(
-      { tier: "Tier 1", source: productInfo.artisan ? `${productInfo.artisan} 公式ショップ` : "商品ページ", note: "商品仕様・価格・職人情報" },
-      { tier: "Tier 2", source: "Encyclopaedia Britannica", note: "技法の定義・歴史的背景" },
-      { tier: "Tier 2", source: "ResearchGate / 学術論文", note: "材料の化学的性質・耐久性データ" },
-      { tier: "Tier 3", source: "Musubi Kiln Journal", note: "伝統工芸のケア・使用方法" },
-      { tier: "Tier 3", source: "専門クラフトメディア", note: "工芸品の比較・市場情報" },
-      { tier: "Tier 4", source: "Amazon / eBay レビュー", note: "購買者の視点・競合商品情報" }
-    );
+    const sources = buildArticleSources({ productInfo, interviewAnswers, craftSources });
 
     const theme = themes[0];
-    const { contentEn, rawEn, refsHtml } = await generateArticle(theme, productInfo, interviewAnswers, urls || []);
+    const { contentEn, rawEn, refsHtml } = await generateArticle(theme, productInfo, interviewAnswers, urls || [], craftSlug, craftSources);
 
     // Supabase: 英語のみ先行保存（themeIdがない場合はproductId+themeIndexで検索）
     try {

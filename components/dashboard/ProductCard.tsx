@@ -44,7 +44,18 @@ export function ProductCard({ product }: ProductCardProps) {
         </h2>
         <PhaseProgressBadge phase={product.phase_completed} />
       </div>
-      <p className="text-xs text-stone-400">{formatDate(product.created_at)}</p>
+      <div className="flex items-center gap-2">
+        <p className="text-xs text-stone-400">{formatDate(product.created_at)}</p>
+        {product.source_type === "craft" && product.craft_item_id && (
+          <a
+            href={`/admin/crafts/${product.craft_item_id}`}
+            onClick={(e) => e.stopPropagation()}
+            className="text-[10px] bg-emerald-50 text-emerald-700 border border-emerald-100 px-2 py-0.5 rounded-full hover:bg-emerald-100 transition-colors"
+          >
+            工芸品由来 →
+          </a>
+        )}
+      </div>
       <div className="mt-auto pt-2">
         <a
           href={href}

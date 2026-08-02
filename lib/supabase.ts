@@ -1,5 +1,5 @@
 import { createClient } from "@supabase/supabase-js";
-import type { ProductInfo, Theme, Questions, Source, ProductRow, ThemeRow, ArticleRow, ProductWithData } from "@/types";
+import type { ProductInfo, Theme, Questions, Source, ProductRow, ThemeRow, ArticleRow, ProductWithData, SourceType } from "@/types";
 
 export function getSupabaseClient() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL!;
@@ -19,11 +19,20 @@ export async function saveProduct(data: {
   urls: string[];
   q1: string;
   q2: string;
+  craftItemId?: string;
+  sourceType?: SourceType;
 }): Promise<string> {
   const db = getSupabaseClient();
   const { data: row, error } = await db
     .from("products")
-    .insert({ urls: data.urls, q1: data.q1, q2: data.q2, phase_completed: 0 })
+    .insert({
+      urls: data.urls,
+      q1: data.q1,
+      q2: data.q2,
+      phase_completed: 0,
+      craft_item_id: data.craftItemId ?? null,
+      source_type: data.sourceType ?? "url",
+    })
     .select("id")
     .single();
   if (error) throw error;

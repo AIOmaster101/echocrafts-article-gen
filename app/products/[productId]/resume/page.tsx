@@ -1,7 +1,8 @@
 import { getProductWithData } from "@/lib/supabase";
+import { getCraftItem, getCraftSources } from "@/lib/crafts-supabase";
 import { notFound } from "next/navigation";
 import { ResumeArticleGenerator } from "@/components/ResumeArticleGenerator";
-import type { ArticleGeneratorInitialState, ProductInfo, Theme, Questions } from "@/types";
+import type { ArticleGeneratorInitialState, ProductInfo, Theme, Questions, CraftSourceRef } from "@/types";
 
 export const dynamic = "force-dynamic";
 
@@ -54,6 +55,17 @@ export default async function ResumePage({
   // ※ interview_questionsはAPIルート経由で取得していないため、phase3再開時はquestions=undefined
   const questions: Questions | undefined = undefined;
 
+  // 工芸品由来の場合、内部リンク・実出典を再開後の記事生成でも使えるように再取得
+  let craftSlug: string | undefined;
+  let craftSources: CraftSourceRef[] | undefined;
+  if (product.craft_item_id) {
+    const craftItem = await getCraftItem(product.craft_item_id).catch(() => null);
+    craftSlug = craftItem?.slug;
+    craftSources = (await getCraftSources(product.craft_item_id).catch(() => []))
+      .filter((s) => s.tier === 1 || s.tier === 2)
+      .map((s) => ({ publisher: s.publisher, url: s.url, tier: s.tier }));
+  }
+
   const initialState: ArticleGeneratorInitialState = {
     productId,
     phase: resumePhase,
@@ -63,6 +75,10 @@ export default async function ResumePage({
     productInfo,
     themes: themes.length > 0 ? themes : undefined,
     questions,
+    sourceType: product.source_type,
+    craftItemId: product.craft_item_id ?? undefined,
+    craftSlug,
+    craftSources,
   };
 
   return <ResumeArticleGenerator initialState={initialState} />;
