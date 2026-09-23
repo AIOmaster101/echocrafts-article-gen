@@ -86,6 +86,8 @@ export interface ProductRow {
   key_differentiator: string | null;
   craft_item_id: string | null;
   source_type: SourceType;
+  survey_article_html?: string | null;
+  survey_article_meta?: SurveyArticleMeta | null;
 }
 
 export interface ThemeRow extends Theme {
@@ -136,9 +138,63 @@ export interface ArticleRow {
   distribution_content?: DistributionContent | null;
 }
 
+// 一次調査記事のチャートデータ
+export type ChartType = "horizontal-bar" | "grouped-bar";
+
+export interface ChartDataRow {
+  label: string;
+  value: number;       // 0–100 (%)
+  value2?: number;     // grouped-bar の2系列目
+}
+
+export interface SurveyChart {
+  id: string;          // c1, c2, ...
+  type: ChartType;
+  title: string;
+  subtitle?: string;
+  data: ChartDataRow[];
+  series1Label?: string;  // grouped-bar 用
+  series2Label?: string;
+  source?: string;
+}
+
+export interface SurveyQuote {
+  text: string;
+  respondent_id: string;
+  gender?: string;
+  age_group?: string;
+  location?: string;
+  product_detail?: string;
+}
+
+// ユーザーが入力するサーベイデータ
+export interface SurveyInput {
+  survey_name: string;        // "MJC Indigo Owner Survey #01"
+  conducted_by?: string;      // デフォルト "Modern Japan Crafts"
+  n: number;                  // サンプル数
+  date_start?: string;        // YYYY-MM-DD
+  date_end?: string;
+  method?: string;
+  question_verbatim?: string;
+  charts: SurveyChart[];
+  quotes?: SurveyQuote[];
+  additional_findings?: string;  // 自由記述
+  // tier フラグ（UI表示用のみ、記事には出力しない）
+  data_tier: "A" | "B" | "C";  // A=実データ, B=取得済み, C=AI推定
+}
+
+export interface SurveyArticleMeta {
+  survey_name: string;
+  n: number;
+  data_tier: "A" | "B" | "C";
+  generated_at: string;
+}
+
 export interface ProductWithData extends ProductRow {
   themes: ThemeRow[];
   articles: ArticleRow[];
+  survey_article_html?: string | null;
+  survey_article_meta?: SurveyArticleMeta | null;
 }
 
 // ArticleGenerator に initialState を注入するための型（再開フロー用）

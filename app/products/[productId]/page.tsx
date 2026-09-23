@@ -3,6 +3,7 @@ import { PhaseProgressBadge } from "@/components/dashboard/PhaseProgressBadge";
 import { notFound } from "next/navigation";
 import { ArticleViewer } from "@/components/dashboard/ArticleViewer";
 import { DistributionPanel } from "@/components/dashboard/DistributionPanel";
+import { SurveyArticlePanel } from "@/components/dashboard/SurveyArticlePanel";
 
 export const dynamic = "force-dynamic";
 
@@ -146,6 +147,15 @@ export default async function ProductDetailPage({
             productNameJa={product.name_ja ?? ""}
           />
         )}
+
+        {/* 一次調査記事 */}
+        <SurveyArticlePanel
+          productId={product.id}
+          productNameEn={product.name_en ?? ""}
+          productNameJa={product.name_ja ?? ""}
+          initialHtml={product.survey_article_html ?? null}
+          initialMeta={product.survey_article_meta ?? null}
+        />
 
       </div>
     </div>
