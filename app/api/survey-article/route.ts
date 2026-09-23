@@ -96,8 +96,8 @@ export async function POST(req: NextRequest) {
     const quotesRaw = (formData.get("quotes") as string) || "[]";
     const file = formData.get("file") as File | null;
 
-    if (!productId || !surveyName) {
-      return NextResponse.json({ error: "product_id and survey_name are required" }, { status: 400 });
+    if (!productId) {
+      return NextResponse.json({ error: "product_id is required" }, { status: 400 });
     }
 
     // ── Step 1: get data ──────────────────────────────────────────────────

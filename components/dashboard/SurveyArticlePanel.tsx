@@ -58,10 +58,6 @@ export function SurveyArticlePanel({ productId, productNameEn, productNameJa, in
   const fileRef = useRef<HTMLInputElement>(null);
 
   async function handleGenerate(skipFile = false) {
-    if (!surveyName.trim()) {
-      setError("調査名を入力してください");
-      return;
-    }
     setLoading(true);
     setError(null);
     try {
@@ -141,7 +137,7 @@ export function SurveyArticlePanel({ productId, productNameEn, productNameJa, in
 
       {/* 必須：調査名 */}
       <div className="mb-4">
-        <label className="text-[10px] text-stone-400 block mb-1">調査名 *</label>
+        <label className="text-[10px] text-stone-400 block mb-1">調査名（任意）</label>
         <input
           value={surveyName}
           onChange={(e) => setSurveyName(e.target.value)}
@@ -263,7 +259,7 @@ export function SurveyArticlePanel({ productId, productNameEn, productNameJa, in
         {file && (
           <button
             onClick={() => handleGenerate(false)}
-            disabled={loading || !surveyName.trim()}
+            disabled={loading}
             className="w-full py-3 bg-stone-800 text-white text-sm rounded-xl font-medium hover:bg-stone-700 disabled:opacity-40"
           >
             {loading ? "生成中... (30〜60秒)" : "実データで記事を生成（Tier A）"}
@@ -271,7 +267,7 @@ export function SurveyArticlePanel({ productId, productNameEn, productNameJa, in
         )}
         <button
           onClick={() => handleGenerate(true)}
-          disabled={loading || !surveyName.trim()}
+          disabled={loading}
           className={`w-full py-3 text-sm rounded-xl font-medium disabled:opacity-40 ${
             file
               ? "border border-stone-200 text-stone-600 hover:bg-stone-50"
