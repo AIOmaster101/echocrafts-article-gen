@@ -260,26 +260,26 @@ export function SurveyArticlePanel({ productId, productNameEn, productNameJa, in
 
       {/* ボタン */}
       <div className="space-y-2">
-        <button
-          onClick={() => handleGenerate(false)}
-          disabled={loading || !surveyName.trim()}
-          className="w-full py-3 bg-stone-800 text-white text-sm rounded-xl font-medium hover:bg-stone-700 disabled:opacity-40"
-        >
-          {loading
-            ? "生成中... (30〜60秒)"
-            : file
-            ? "実データで記事を生成（Tier A）"
-            : "AIリサーチで記事を生成（Tier B/C）"}
-        </button>
-        {file && !loading && (
+        {file && (
           <button
-            onClick={() => handleGenerate(true)}
+            onClick={() => handleGenerate(false)}
             disabled={loading || !surveyName.trim()}
-            className="w-full py-2 border border-stone-200 text-stone-500 text-xs rounded-xl hover:bg-stone-50"
+            className="w-full py-3 bg-stone-800 text-white text-sm rounded-xl font-medium hover:bg-stone-700 disabled:opacity-40"
           >
-            ファイルを使わずAIリサーチで生成（Tier B/C）
+            {loading ? "生成中... (30〜60秒)" : "実データで記事を生成（Tier A）"}
           </button>
         )}
+        <button
+          onClick={() => handleGenerate(true)}
+          disabled={loading || !surveyName.trim()}
+          className={`w-full py-3 text-sm rounded-xl font-medium disabled:opacity-40 ${
+            file
+              ? "border border-stone-200 text-stone-600 hover:bg-stone-50"
+              : "bg-stone-800 text-white hover:bg-stone-700"
+          }`}
+        >
+          {loading ? "生成中... (30〜60秒)" : "AIリサーチで記事を生成（Tier B/C）"}
+        </button>
       </div>
 
       {/* Tier 説明 */}
