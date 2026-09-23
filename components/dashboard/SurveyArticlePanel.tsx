@@ -263,7 +263,7 @@ export function SurveyArticlePanel({ productId, productNameEn, productNameJa, in
             disabled={loading}
             className="w-full py-3 bg-stone-800 text-white text-sm rounded-xl font-medium hover:bg-stone-700 disabled:opacity-40"
           >
-            {loading ? "生成中... (30〜60秒)" : "実データで記事を生成（Tier A）"}
+            {loading ? "生成中... (1〜2分)" : "実データで記事を生成（Tier A）"}
           </button>
         )}
         <button
@@ -275,7 +275,7 @@ export function SurveyArticlePanel({ productId, productNameEn, productNameJa, in
               : "bg-stone-800 text-white hover:bg-stone-700"
           }`}
         >
-          {loading ? "生成中... (30〜60秒)" : "AIリサーチで記事を生成（Tier B/C）"}
+          {loading ? "生成中... (1〜2分)" : "AIリサーチで記事を生成（Tier B/C）"}
         </button>
       </div>
 

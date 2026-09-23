@@ -1,4 +1,4 @@
-export const maxDuration = 60;
+export const maxDuration = 300;
 
 import { NextRequest, NextResponse } from "next/server";
 import { readFileSync } from "fs";
@@ -87,7 +87,7 @@ export async function POST(req: NextRequest) {
       additional_findings: additionalFindings,
     });
 
-    const html = await callClaude(systemPrompt, userMessage);
+    const html = await callClaude(systemPrompt, userMessage, 16000);
     const cleanHtml = html.replace(/^```html\s*/i, "").replace(/```\s*$/i, "").trim();
 
     const meta: SurveyArticleMeta = {

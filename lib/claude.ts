@@ -9,11 +9,11 @@ export class ClaudeOverloadedError extends Error {
   }
 }
 
-export async function callClaude(system: string, user: string): Promise<string> {
+export async function callClaude(system: string, user: string, maxTokens = 8000): Promise<string> {
   try {
     const message = await client.messages.create({
       model: "claude-sonnet-4-6",
-      max_tokens: 8000,
+      max_tokens: maxTokens,
       system,
       messages: [{ role: "user", content: user }],
     });
