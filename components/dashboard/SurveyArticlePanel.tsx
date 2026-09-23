@@ -77,13 +77,14 @@ export function SurveyArticlePanel({ productId, productNameEn, productNameJa, in
       if (!skipFile && file) fd.append("file", file);
 
       const res = await fetch("/api/survey-article", { method: "POST", body: fd });
-      const data = await res.json();
+      let data: { html?: string; meta?: SurveyArticleMeta; error?: string } = {};
+      try { data = await res.json(); } catch { /* non-JSON response */ }
       if (!res.ok) {
-        setError(data.error ?? "生成に失敗しました");
+        setError(data.error ?? `生成に失敗しました (${res.status})`);
         return;
       }
-      setHtml(data.html);
-      setMeta(data.meta);
+      setHtml(data.html ?? "");
+      setMeta(data.meta ?? null);
       setShowForm(false);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
