@@ -1,5 +1,99 @@
 import { createHash } from "node:crypto";
 
+export function journalDate(value) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime()))
+    throw new Error("Invalid publication date.");
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: "Asia/Tokyo",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(date);
+  const get = (type) => parts.find((part) => part.type === type)?.value;
+  return `${get("year")}-${get("month")}-${get("day")}`;
+}
+
+export function publicationWindow(plan, now, dailyLimit, journalAudit = null) {
+  if (
+    plan?.version !== 1 ||
+    !Array.isArray(plan.items) ||
+    !Array.isArray(plan.events) ||
+    !Number.isInteger(dailyLimit) ||
+    dailyLimit < 1
+  ) {
+    throw new Error("Invalid saved plan or daily publication limit.");
+  }
+  if (plan.events.length > plan.items.length) {
+    throw new Error("Plan has more events than articles.");
+  }
+  if (
+    plan.events.some(
+      (event) => typeof event.handle !== "string" || !event.handle,
+    )
+  ) {
+    throw new Error("Plan event is missing an article handle.");
+  }
+  const date = journalDate(now);
+  const publishedHandles = new Set(
+    plan.events
+      .filter(
+        (event) => journalDate(event.publishedAt ?? event.verifiedAt) === date,
+      )
+      .map((event) => event.handle),
+  );
+  if (journalAudit) {
+    const articles = journalAudit?.data?.blogs?.nodes?.find(
+      (blog) => blog.handle === "journal",
+    )?.articles;
+    if (
+      !Array.isArray(articles?.nodes) ||
+      articles?.pageInfo?.hasNextPage !== false
+    ) {
+      throw new Error(
+        "A complete Shopify Journal audit is required for the daily limit.",
+      );
+    }
+    for (const article of articles.nodes) {
+      if (
+        article.isPublished &&
+        article.publishedAt &&
+        journalDate(article.publishedAt) === date
+      ) {
+        if (typeof article.handle !== "string" || !article.handle) {
+          throw new Error("Published Journal article is missing its handle.");
+        }
+        publishedHandles.add(article.handle);
+      }
+    }
+  }
+  const next = plan.items[plan.events.length] ?? null;
+  const reservation = plan.reservation ?? null;
+  if (reservation && reservation.handle !== next?.handle) {
+    throw new Error("Plan reservation does not match the next article.");
+  }
+  const reservedToday =
+    reservation && journalDate(reservation.reservedAt) === date ? 1 : 0;
+  const publishedToday = publishedHandles.size;
+  const usedToday = publishedToday + reservedToday;
+  return {
+    date,
+    dailyLimit,
+    publishedToday,
+    usedToday,
+    remainingToday: Math.max(0, dailyLimit - usedToday),
+    next,
+    reservation,
+    state: !next
+      ? "complete"
+      : reservation
+        ? "reconcile"
+        : usedToday >= dailyLimit
+          ? "wait"
+          : "ready",
+  };
+}
+
 function rank(seed, value) {
   return createHash("sha256").update(`${seed}:${value}`).digest("hex");
 }
@@ -103,6 +197,14 @@ export function planJournalOrder(
           ),
       );
     for (const themeId of choices) {
+      if (
+        themes.length === 3 &&
+        items
+          .slice(Math.floor(items.length / 3) * 3)
+          .some((item) => item.themeId === themeId)
+      ) {
+        continue;
+      }
       const queue = queues.get(themeId);
       for (let index = 0; index < queue.length; index++) {
         const article = queue[index];

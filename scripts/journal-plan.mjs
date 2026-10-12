@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { randomBytes } from "node:crypto";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, statSync } from "node:fs";
 import { join, resolve } from "node:path";
 import {
   assertReadyForPublish,
@@ -9,10 +9,17 @@ import {
   validateReceipt,
   withLock,
 } from "./lib/publication-harness.mjs";
-import { planJournalOrder, reviewAges } from "./lib/journal-plan.mjs";
+import {
+  planJournalOrder,
+  publicationWindow,
+  reviewAges,
+} from "./lib/journal-plan.mjs";
 import { readJournalHistory } from "./lib/journal-work-history.mjs";
 
 const [command, ...args] = process.argv.slice(2);
+const policy = readJson(
+  join(import.meta.dirname, "../config/publication-policy.json"),
+);
 function option(name, required = true) {
   const index = args.indexOf(`--${name}`);
   if (index < 0) {
@@ -30,15 +37,12 @@ try {
     const input = readJson(resolve(option("input")));
     const output = resolve(option("output"));
     if (input?.version !== 1) throw new Error("Expected version 1 plan input.");
-    const policy = readJson(
-      join(import.meta.dirname, "../config/publication-policy.json"),
-    );
     if (
       !Array.isArray(input.themes) ||
-      input.themes.length < policy.minimumReadyThemesForShopifyPublish
+      input.themes.length !== policy.minimumReadyThemesForShopifyPublish
     ) {
       throw new Error(
-        `At least ${policy.minimumReadyThemesForShopifyPublish} ready themes are required for a Shopify plan.`,
+        `Exactly ${policy.minimumReadyThemesForShopifyPublish} ready themes are required for a Shopify plan.`,
       );
     }
     for (const theme of input.themes) {
@@ -94,9 +98,108 @@ try {
       recentEditorialAngle: input.recentEditorialAngle ?? null,
       items,
       events: [],
+      reservation: null,
     };
     atomicJson(output, plan);
     console.log(JSON.stringify(plan, null, 2));
+  } else if (command === "status") {
+    const plan = readJson(resolve(option("plan")));
+    console.log(
+      JSON.stringify(
+        publicationWindow(
+          plan,
+          option("now", false) ?? new Date().toISOString(),
+          policy.maximumShopifyArticlesPerDay,
+        ),
+        null,
+        2,
+      ),
+    );
+  } else if (command === "permit") {
+    if (args.includes("--now")) {
+      throw new Error(
+        "permit always uses the current time; --now is not allowed.",
+      );
+    }
+    const path = resolve(option("plan"));
+    const handle = option("handle");
+    withLock(`${path}.lock`, () => {
+      const plan = readJson(path);
+      const now = new Date().toISOString();
+      const window = publicationWindow(
+        plan,
+        now,
+        policy.maximumShopifyArticlesPerDay,
+      );
+      if (window.next?.handle !== handle) {
+        throw new Error(
+          `Next Shopify article is ${window.next?.handle ?? "none"}.`,
+        );
+      }
+      const auditPath = resolve(option("audit"));
+      if (Math.abs(Date.now() - statSync(auditPath).mtimeMs) > 30 * 60 * 1000) {
+        throw new Error(
+          "Shopify Journal audit is older than 30 minutes; fetch it again.",
+        );
+      }
+      const auditedWindow = publicationWindow(
+        plan,
+        now,
+        policy.maximumShopifyArticlesPerDay,
+        readJson(auditPath),
+      );
+      if (window.reservation) {
+        if (!args.includes("--confirmed-absent")) {
+          throw new Error(
+            `Reconcile the existing permit for ${window.reservation.handle} before another write.`,
+          );
+        }
+        const receipt = readJson(resolve(window.next.receiptPath));
+        const article = receipt?.articles?.find(
+          (item) => item.themeIndex === window.next.index,
+        );
+        if (
+          article?.handle !== handle ||
+          article?.shopify?.status !== "pending"
+        ) {
+          throw new Error(
+            "The receipt is no longer pending; verify and record the existing Shopify article.",
+          );
+        }
+        if (auditedWindow.publishedToday >= auditedWindow.dailyLimit) {
+          throw new Error(
+            `Daily Shopify limit reached for ${auditedWindow.date}; resume on the next Asia/Tokyo day.`,
+          );
+        }
+        plan.reservation = { handle, reservedAt: now };
+        atomicJson(path, plan);
+        console.log(
+          JSON.stringify({ ...plan.reservation, reused: true }, null, 2),
+        );
+        return;
+      }
+      if (auditedWindow.state !== "ready") {
+        throw new Error(
+          `Daily Shopify limit reached for ${auditedWindow.date}; resume on the next Asia/Tokyo day.`,
+        );
+      }
+      const receipt = readJson(resolve(window.next.receiptPath));
+      const article = receipt?.articles?.find(
+        (item) => item.themeIndex === window.next.index,
+      );
+      if (
+        article?.handle !== handle ||
+        article?.shopify?.status !== "pending"
+      ) {
+        throw new Error(
+          "Next article is not pending; reconcile its Shopify state before a write.",
+        );
+      }
+      assertReadyForPublish(resolve(window.next.receiptPath), article);
+      plan.reservation = { handle, reservedAt: now };
+      atomicJson(path, plan);
+      console.log(JSON.stringify(plan.reservation, null, 2));
+    });
   } else if (command === "record") {
     const path = resolve(option("plan"));
     const handle = option("handle");
@@ -113,6 +216,11 @@ try {
       if (!next || next.handle !== handle) {
         throw new Error(`Next Shopify article is ${next?.handle ?? "none"}.`);
       }
+      if (plan.reservation?.handle !== handle) {
+        throw new Error(
+          `A saved permit for ${handle} is required before recording publication.`,
+        );
+      }
       if (!next.receiptPath || !Number.isInteger(next.index)) {
         throw new Error("Plan item requires receiptPath and index.");
       }
@@ -123,7 +231,8 @@ try {
       if (
         article?.handle !== handle ||
         article?.shopify?.status !== "verified" ||
-        !article.shopify.url
+        !article.shopify.url ||
+        !article.shopify.verifiedAt
       ) {
         throw new Error(
           "The receipt has no verified Shopify article for this plan item.",
@@ -135,8 +244,10 @@ try {
         handle,
         url: article.shopify.url,
         verifiedAt: article.shopify.verifiedAt ?? null,
+        publishedAt: article.shopify.publishedAt ?? null,
         recordedAt: new Date().toISOString(),
       });
+      plan.reservation = null;
       atomicJson(path, plan);
       console.log(JSON.stringify(plan.events.at(-1), null, 2));
     });
@@ -146,9 +257,6 @@ try {
       input?.data?.blogs?.nodes?.[0]?.articles?.nodes ??
       input?.articles ??
       input;
-    const policy = readJson(
-      join(import.meta.dirname, "../config/publication-policy.json"),
-    );
     const history = readJournalHistory(
       resolve(
         option("history", false) ??
@@ -170,7 +278,7 @@ try {
     );
   } else {
     throw new Error(
-      "Usage: journal-plan.mjs <plan --input FILE --output FILE|record --plan FILE --handle HANDLE|review --input FILE [--history FILE] [--now ISO]>",
+      "Usage: journal-plan.mjs <plan --input FILE --output FILE|status --plan FILE [--now ISO]|permit --plan FILE --handle HANDLE --audit FILE [--confirmed-absent]|record --plan FILE --handle HANDLE|review --input FILE [--history FILE] [--now ISO]>",
     );
   }
 } catch (error) {

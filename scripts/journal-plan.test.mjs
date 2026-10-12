@@ -1,10 +1,16 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
-import { planJournalOrder, reviewAges } from "./lib/journal-plan.mjs";
+import {
+  journalDate,
+  planJournalOrder,
+  publicationWindow,
+  reviewAges,
+} from "./lib/journal-plan.mjs";
+import { sha256 } from "./lib/publication-harness.mjs";
 
 const themes = ["wood", "glass", "ceramic"].map((id) => ({
   id,
@@ -23,6 +29,12 @@ test("seeded order is stable, complete, and has no adjacent theme", () => {
   assert.notEqual(first[0].themeId, "wood");
   for (let index = 1; index < first.length; index++) {
     assert.notEqual(first[index].themeId, first[index - 1].themeId);
+  }
+  for (let index = 0; index < first.length; index += 3) {
+    assert.equal(
+      new Set(first.slice(index, index + 3).map((item) => item.themeId)).size,
+      3,
+    );
   }
 });
 
@@ -103,7 +115,231 @@ test("Shopify plan CLI requires three ready themes", () => {
     { encoding: "utf8" },
   );
   assert.notEqual(result.status, 0);
-  assert.match(result.stderr, /At least 3 ready themes/);
+  assert.match(result.stderr, /Exactly 3 ready themes/);
+});
+
+test("twelve prepared articles release at most three on each Tokyo day", () => {
+  const plan = {
+    version: 1,
+    items: planJournalOrder(themes, "previous", "four-day-seed"),
+    events: [],
+  };
+  const dates = [
+    "2026-10-12T01:00:00Z",
+    "2026-10-13T01:00:00Z",
+    "2026-10-14T01:00:00Z",
+    "2026-10-15T01:00:00Z",
+  ];
+  for (const date of dates) {
+    for (let count = 0; count < 3; count++) {
+      const window = publicationWindow(plan, date, 3);
+      assert.equal(window.state, "ready");
+      plan.events.push({
+        handle: window.next.handle,
+        publishedAt: date,
+      });
+    }
+    const window = publicationWindow(plan, date, 3);
+    assert.equal(window.remainingToday, 0);
+    assert.equal(window.state, plan.events.length === 12 ? "complete" : "wait");
+  }
+  assert.equal(plan.events.length, 12);
+});
+
+test("Tokyo date boundary and existing verified events count toward today's cap", () => {
+  assert.equal(journalDate("2026-10-11T15:00:00Z"), "2026-10-12");
+  const plan = {
+    version: 1,
+    items: [{ handle: "a" }, { handle: "b" }, { handle: "c" }, { handle: "d" }],
+    events: [
+      { handle: "a", verifiedAt: "2026-10-11T16:00:00Z" },
+      { handle: "b", verifiedAt: "2026-10-12T05:00:00Z" },
+    ],
+  };
+  assert.equal(
+    publicationWindow(plan, "2026-10-12T06:00:00Z", 3).remainingToday,
+    1,
+  );
+  plan.reservation = { handle: "c", reservedAt: "2026-10-12T06:01:00Z" };
+  assert.equal(
+    publicationWindow(plan, "2026-10-12T06:02:00Z", 3).state,
+    "reconcile",
+  );
+  assert.equal(
+    publicationWindow(plan, "2026-10-12T06:02:00Z", 3).remainingToday,
+    0,
+  );
+  assert.equal(
+    publicationWindow(plan, "2026-10-12T15:00:00Z", 3).state,
+    "reconcile",
+  );
+});
+
+test("a complete Journal audit counts other plans toward the daily cap", () => {
+  const plan = {
+    version: 1,
+    items: [{ handle: "next" }],
+    events: [],
+  };
+  const audit = {
+    data: {
+      blogs: {
+        nodes: [
+          {
+            handle: "journal",
+            articles: {
+              nodes: ["other-1", "other-2", "other-3"].map((handle) => ({
+                handle,
+                isPublished: true,
+                publishedAt: "2026-10-12T05:00:00Z",
+              })),
+              pageInfo: { hasNextPage: false },
+            },
+          },
+        ],
+      },
+    },
+  };
+  assert.equal(
+    publicationWindow(plan, "2026-10-12T06:00:00Z", 3, audit).state,
+    "wait",
+  );
+  audit.data.blogs.nodes[0].articles.pageInfo.hasNextPage = true;
+  assert.throws(
+    () => publicationWindow(plan, "2026-10-12T06:00:00Z", 3, audit),
+    /complete Shopify Journal audit/,
+  );
+});
+
+test("permit is saved before a write and reused only after an absence check", () => {
+  const dir = mkdtempSync(join(tmpdir(), "journal-permit-"));
+  const articleDir = join(dir, "article-0");
+  mkdirSync(articleDir);
+  const body = "<p>Reviewed article</p>";
+  const cover = Buffer.from("reviewed-cover");
+  writeFileSync(join(articleDir, "shopify.html"), body);
+  writeFileSync(join(articleDir, "cover.png"), cover);
+  const receiptPath = join(dir, "receipt.json");
+  writeFileSync(
+    receiptPath,
+    JSON.stringify({
+      articles: [
+        {
+          themeIndex: 0,
+          handle: "wood-0",
+          directory: "article-0",
+          editorial: {
+            reviewedAt: "2026-10-12T00:00:00Z",
+            note: "Checked source.",
+            sha256: sha256(body),
+          },
+          cover: {
+            reviewed: true,
+            path: "article-0/cover.png",
+            sha256: sha256(cover),
+          },
+          shopify: { status: "pending" },
+        },
+      ],
+    }),
+  );
+  const planPath = join(dir, "plan.json");
+  const auditPath = join(dir, "audit.json");
+  writeFileSync(
+    auditPath,
+    JSON.stringify({
+      data: {
+        blogs: {
+          nodes: [
+            {
+              handle: "journal",
+              articles: {
+                nodes: [],
+                pageInfo: { hasNextPage: false },
+              },
+            },
+          ],
+        },
+      },
+    }),
+  );
+  writeFileSync(
+    planPath,
+    JSON.stringify({
+      version: 1,
+      items: [{ handle: "wood-0", index: 0, receiptPath }],
+      events: [],
+    }),
+  );
+  const run = (...extra) =>
+    spawnSync(
+      process.execPath,
+      [
+        join(import.meta.dirname, "journal-plan.mjs"),
+        "permit",
+        "--plan",
+        planPath,
+        "--handle",
+        "wood-0",
+        "--audit",
+        auditPath,
+        ...extra,
+      ],
+      { encoding: "utf8" },
+    );
+  assert.equal(run().status, 0);
+  assert.equal(
+    JSON.parse(readFileSync(planPath, "utf8")).reservation.handle,
+    "wood-0",
+  );
+  assert.match(run().stderr, /Reconcile the existing permit/);
+  assert.match(
+    run("--now", "2099-01-01T00:00:00Z").stderr,
+    /--now is not allowed/,
+  );
+  writeFileSync(
+    auditPath,
+    JSON.stringify({
+      data: {
+        blogs: {
+          nodes: [
+            {
+              handle: "journal",
+              articles: {
+                nodes: ["other-1", "other-2", "other-3"].map((handle) => ({
+                  handle,
+                  isPublished: true,
+                  publishedAt: new Date().toISOString(),
+                })),
+                pageInfo: { hasNextPage: false },
+              },
+            },
+          ],
+        },
+      },
+    }),
+  );
+  assert.match(run("--confirmed-absent").stderr, /Daily Shopify limit reached/);
+  writeFileSync(
+    auditPath,
+    JSON.stringify({
+      data: {
+        blogs: {
+          nodes: [
+            {
+              handle: "journal",
+              articles: {
+                nodes: [],
+                pageInfo: { hasNextPage: false },
+              },
+            },
+          ],
+        },
+      },
+    }),
+  );
+  assert.equal(run("--confirmed-absent").status, 0);
+  assert.match(run("--confirmed-absent").stdout, /"reused": true/);
 });
 
 test("an impossible visual sequence stops publication planning", () => {
@@ -222,6 +458,7 @@ test("record accepts only the next verified Shopify receipt", () => {
     JSON.stringify({
       version: 1,
       events: [],
+      reservation: { handle: "wood-0", reservedAt: "2026-10-12T00:00:00Z" },
       items: [
         {
           position: 1,
