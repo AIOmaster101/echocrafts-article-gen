@@ -1,5 +1,11 @@
 # Journal work report — 2026-10-12
 
+## Verified result
+
+- New Shopify articles published: **0**.
+- Existing Shopify articles updated: **2** (text and summary only; original URLs, publication dates, and images retained).
+- New articles prepared but unpublished: **12** across three themes.
+
 ## Verified maintenance
 
 - Updated the existing article [Can You Use Lacquerware Bowls Every Day?](https://modernjapancrafts.com/blogs/journal/can-you-use-lacquerware-bowls-every-day-understanding-durability-and-care) at its original URL.
