@@ -1,0 +1,16 @@
+mutation UpdateJournalArticleBody($id: ID!, $article: ArticleUpdateInput!) {
+  articleUpdate(id: $id, article: $article) {
+    article {
+      id
+      handle
+      body
+      summary
+      publishedAt
+      updatedAt
+    }
+    userErrors {
+      field
+      message
+    }
+  }
+}
