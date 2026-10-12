@@ -147,10 +147,29 @@ export function planJournalOrder(
   return items;
 }
 
-export function reviewAges(articles, now, reviewDays = 21, newTopicDays = 28) {
+export function reviewAges(
+  articles,
+  now,
+  reviewDays = 21,
+  newTopicDays = 28,
+  workHistory = [],
+) {
   if (!Array.isArray(articles)) throw new Error("Expected an article list.");
+  if (!Array.isArray(workHistory)) throw new Error("Expected work history.");
   const instant = new Date(now);
   if (Number.isNaN(instant.getTime())) throw new Error("Invalid review date.");
+  const lastMaintenanceByArticle = new Map();
+  for (const event of workHistory) {
+    if (event.kind !== "maintenance") continue;
+    const verifiedAt = new Date(event.verifiedAt);
+    if (Number.isNaN(verifiedAt.getTime())) {
+      throw new Error(`Invalid maintenance date for ${event.articleId}.`);
+    }
+    const previous = lastMaintenanceByArticle.get(event.articleId);
+    if (!previous || verifiedAt > previous) {
+      lastMaintenanceByArticle.set(event.articleId, verifiedAt);
+    }
+  }
   return articles
     .filter((article) => article.isPublished && article.publishedAt)
     .map((article) => {
@@ -158,16 +177,22 @@ export function reviewAges(articles, now, reviewDays = 21, newTopicDays = 28) {
       if (Number.isNaN(published.getTime()))
         throw new Error(`Invalid publishedAt for ${article.handle}.`);
       const ageDays = Math.floor((instant - published) / 86400000);
+      const maintenance = lastMaintenanceByArticle.get(article.id);
+      const reviewedAt =
+        maintenance && maintenance > published ? maintenance : published;
+      const reviewAgeDays = Math.floor((instant - reviewedAt) / 86400000);
       return {
         id: article.id,
         handle: article.handle,
         title: article.title,
         publishedAt: article.publishedAt,
         ageDays,
+        lastTextMaintenanceAt: maintenance?.toISOString() ?? null,
+        reviewAgeDays,
         action:
-          ageDays >= newTopicDays
+          reviewAgeDays >= newTopicDays
             ? "review_new_question"
-            : ageDays >= reviewDays
+            : reviewAgeDays >= reviewDays
               ? "review_existing"
               : "none",
       };

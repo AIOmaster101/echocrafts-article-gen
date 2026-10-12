@@ -10,6 +10,7 @@ import {
   withLock,
 } from "./lib/publication-harness.mjs";
 import { planJournalOrder, reviewAges } from "./lib/journal-plan.mjs";
+import { readJournalHistory } from "./lib/journal-work-history.mjs";
 
 const [command, ...args] = process.argv.slice(2);
 function option(name, required = true) {
@@ -148,6 +149,12 @@ try {
     const policy = readJson(
       join(import.meta.dirname, "../config/publication-policy.json"),
     );
+    const history = readJournalHistory(
+      resolve(
+        option("history", false) ??
+          join(import.meta.dirname, "../records/journal-work-history.jsonl"),
+      ),
+    );
     console.log(
       JSON.stringify(
         reviewAges(
@@ -155,6 +162,7 @@ try {
           option("now", false) ?? new Date().toISOString(),
           policy.reviewAfterDays,
           policy.newQuestionReviewAfterDays,
+          history,
         ),
         null,
         2,
@@ -162,7 +170,7 @@ try {
     );
   } else {
     throw new Error(
-      "Usage: journal-plan.mjs <plan --input FILE --output FILE|record --plan FILE --handle HANDLE|review --input FILE [--now ISO]>",
+      "Usage: journal-plan.mjs <plan --input FILE --output FILE|record --plan FILE --handle HANDLE|review --input FILE [--history FILE] [--now ISO]>",
     );
   }
 } catch (error) {

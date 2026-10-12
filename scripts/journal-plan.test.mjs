@@ -154,6 +154,35 @@ test("age is a review reminder, not an automatic republish", () => {
   );
 });
 
+test("verified text maintenance resets only the editorial review clock", () => {
+  const now = "2026-10-12T00:00:00Z";
+  const article = {
+    id: "article-1",
+    handle: "old-article",
+    title: "Old article",
+    isPublished: true,
+    publishedAt: "2026-01-01T00:00:00Z",
+  };
+  const history = [
+    {
+      kind: "new",
+      articleId: article.id,
+      verifiedAt: "2026-10-11T00:00:00Z",
+    },
+    {
+      kind: "maintenance",
+      articleId: article.id,
+      verifiedAt: "2026-10-10T00:00:00Z",
+    },
+  ];
+  const [result] = reviewAges([article], now, 21, 28, history);
+  assert.equal(result.ageDays, 284);
+  assert.equal(result.reviewAgeDays, 2);
+  assert.equal(result.lastTextMaintenanceAt, "2026-10-10T00:00:00.000Z");
+  assert.equal(result.action, "none");
+  assert.equal(result.publishedAt, article.publishedAt);
+});
+
 test("record accepts only the next verified Shopify receipt", () => {
   const dir = mkdtempSync(join(tmpdir(), "journal-plan-"));
   const receiptPath = join(dir, "receipt.json");
