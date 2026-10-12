@@ -50,6 +50,62 @@ test("visual groups are separated across themes when supplied", () => {
   }
 });
 
+test("three-theme order separates product, lifestyle scene, and reader angle", () => {
+  const varied = themes.map((theme) => ({
+    ...theme,
+    articles: theme.articles.map((article, index) => ({
+      ...article,
+      visualGroup: ["dining", "shelf", "desk", "travel"][index],
+      editorialAngle: ["care", "craft", "selection", "comparison"][index],
+    })),
+  }));
+  const items = planJournalOrder(
+    varied,
+    "previous",
+    "three-scene-seed",
+    "desk",
+    "selection",
+  );
+  assert.equal(items.length, 12);
+  assert.notEqual(items[0].visualGroup, "desk");
+  assert.notEqual(items[0].editorialAngle, "selection");
+  for (let index = 1; index < items.length; index++) {
+    assert.notEqual(items[index].themeId, items[index - 1].themeId);
+    assert.notEqual(items[index].visualGroup, items[index - 1].visualGroup);
+    assert.notEqual(
+      items[index].editorialAngle,
+      items[index - 1].editorialAngle,
+    );
+  }
+});
+
+test("Shopify plan CLI requires three ready themes", () => {
+  const dir = mkdtempSync(join(tmpdir(), "journal-plan-minimum-"));
+  const inputPath = join(dir, "input.json");
+  writeFileSync(
+    inputPath,
+    JSON.stringify({
+      version: 1,
+      recentThemeId: "previous",
+      themes: themes.slice(0, 2),
+    }),
+  );
+  const result = spawnSync(
+    process.execPath,
+    [
+      join(import.meta.dirname, "journal-plan.mjs"),
+      "plan",
+      "--input",
+      inputPath,
+      "--output",
+      join(dir, "plan.json"),
+    ],
+    { encoding: "utf8" },
+  );
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /At least 3 ready themes/);
+});
+
 test("an impossible visual sequence stops publication planning", () => {
   const sameScene = themes.slice(0, 2).map((theme) => ({
     ...theme,
@@ -60,7 +116,7 @@ test("an impossible visual sequence stops publication planning", () => {
   }));
   assert.throws(
     () => planJournalOrder(sameScene, "ceramic", "visual-seed"),
-    /Cannot avoid adjacent theme and visualGroup/,
+    /Cannot avoid adjacent theme, visualGroup, or editorialAngle/,
   );
   assert.throws(
     () =>

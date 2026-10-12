@@ -9,6 +9,7 @@ export function planJournalOrder(
   recentThemeId,
   seed,
   recentVisualGroup = null,
+  recentEditorialAngle = null,
 ) {
   if (!Array.isArray(themes) || themes.length < 2) {
     throw new Error(
@@ -37,6 +38,18 @@ export function planJournalOrder(
     visualGroups.some((group) => typeof group !== "string" || !group.trim())
   ) {
     throw new Error("Every planned article needs a nonempty visualGroup.");
+  }
+  const editorialAngles = themes.flatMap((theme) =>
+    theme.articles.map((article) => article.editorialAngle),
+  );
+  const useEditorialAngles = editorialAngles.some(
+    (angle) => angle !== undefined,
+  );
+  if (
+    useEditorialAngles &&
+    editorialAngles.some((angle) => typeof angle !== "string" || !angle.trim())
+  ) {
+    throw new Error("Every planned article needs a nonempty editorialAngle.");
   }
   for (const theme of themes) {
     if (new Set(theme.articles.map((article) => article.index)).size !== 4) {
@@ -70,7 +83,12 @@ export function planJournalOrder(
   }
   const total = themes.length * 4;
   let attempts = 0;
-  function arrange(items, previousTheme, previousVisualGroup) {
+  function arrange(
+    items,
+    previousTheme,
+    previousVisualGroup,
+    previousEditorialAngle,
+  ) {
     if (items.length === total) return items;
     if (++attempts > 100000) {
       throw new Error("Visual order search exceeded its safety limit.");
@@ -95,11 +113,19 @@ export function planJournalOrder(
         ) {
           continue;
         }
+        if (
+          useEditorialAngles &&
+          previousEditorialAngle &&
+          article.editorialAngle === previousEditorialAngle
+        ) {
+          continue;
+        }
         queue.splice(index, 1);
         const result = arrange(
           [...items, { position: items.length + 1, themeId, ...article }],
           themeId,
           article.visualGroup ?? null,
+          article.editorialAngle ?? null,
         );
         queue.splice(index, 0, article);
         if (result) return result;
@@ -107,12 +133,15 @@ export function planJournalOrder(
     }
     return null;
   }
-  const items = arrange([], recentThemeId, recentVisualGroup);
+  const items = arrange(
+    [],
+    recentThemeId,
+    recentVisualGroup,
+    recentEditorialAngle,
+  );
   if (!items) {
     throw new Error(
-      useVisualGroups
-        ? "Cannot avoid adjacent theme and visualGroup matches; revise cover scenes before publishing."
-        : "Cannot avoid adjacent theme articles with the remaining queue.",
+      "Cannot avoid adjacent theme, visualGroup, or editorialAngle matches; revise the scenes or reader questions before publishing.",
     );
   }
   return items;

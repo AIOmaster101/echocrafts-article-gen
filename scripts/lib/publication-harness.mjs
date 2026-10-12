@@ -244,7 +244,9 @@ export function validateReceipt(receipt, receiptPath) {
     ) {
       throw new Error("Unsafe article directory.");
     }
-    for (const name of ["shopify.html", "substack.txt", "source.json"]) {
+    const files = ["shopify.html", "source.json"];
+    if (targets.includes("substack")) files.push("substack.txt");
+    for (const name of files) {
       const path = join(dirname(receiptPath), article.directory, name);
       if (!existsSync(path) || !readFileSync(path).length) {
         throw new Error(`Missing article file: ${path}`);

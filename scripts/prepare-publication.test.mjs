@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -11,7 +11,7 @@ const destinations = {
   substackPublication: "modernjapancrafts.substack.com",
 };
 
-function run(articles, visualEvidence = null) {
+function run(articles, visualEvidence = null, requiredDestinations = null) {
   const temp = mkdtempSync(join(tmpdir(), "publication-test-"));
   const input = join(temp, "bundle.json");
   const output = join(temp, "out");
@@ -27,6 +27,7 @@ function run(articles, visualEvidence = null) {
         sourceUrls: ["https://example.com/products/ceramic-bowl"],
       },
       destinations,
+      ...(requiredDestinations ? { requiredDestinations } : {}),
       articles,
     }),
   );
@@ -93,6 +94,26 @@ test("prepares exactly four independent publication receipts", () => {
   );
   assert.match(prompt, /actual product photographs as image inputs/);
   assert.match(prompt, /116 mm diameter, 61 mm high/);
+});
+
+test("Shopify-only bundle needs no Substack text", () => {
+  const shopifyArticles = articles.map((article) => ({
+    id: article.id,
+    themeIndex: article.themeIndex,
+    titleEn: article.titleEn,
+    shopifyBodyHtml: article.shopifyBodyHtml,
+    sources: article.sources,
+  }));
+  const { result, output } = run(shopifyArticles, null, ["shopify"]);
+  assert.equal(result.status, 0, result.stderr);
+  const receipt = JSON.parse(
+    readFileSync(join(output, "receipt.json"), "utf8"),
+  );
+  assert.deepEqual(receipt.requiredDestinations, ["shopify"]);
+  assert.equal(
+    existsSync(join(output, receipt.articles[0].directory, "substack.txt")),
+    false,
+  );
 });
 
 test("rejects incomplete batches before writing a receipt", () => {

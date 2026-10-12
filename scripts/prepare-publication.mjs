@@ -23,8 +23,15 @@ if (
 const bundle = JSON.parse(readFileSync(inputPath, "utf8"));
 const visualEvidence = JSON.parse(readFileSync(evidencePath, "utf8"));
 const articles = bundle.articles;
+const requiredDestinations = bundle.requiredDestinations ?? [
+  "shopify",
+  "substack",
+];
+const needsSubstack = requiredDestinations.includes("substack");
 if (
   bundle.version !== 1 ||
+  !Array.isArray(requiredDestinations) ||
+  !["shopify", "shopify,substack"].includes(requiredDestinations.join(",")) ||
   !Array.isArray(articles) ||
   articles.length !== 4 ||
   new Set(articles.map((article) => article.id)).size !== 4 ||
@@ -33,8 +40,7 @@ if (
     (article) =>
       !article.titleEn ||
       !article.shopifyBodyHtml ||
-      !article.substackSubject ||
-      !article.substackBody,
+      (needsSubstack && (!article.substackSubject || !article.substackBody)),
   )
 ) {
   throw new Error(
@@ -160,6 +166,7 @@ const receipt = {
     : {}),
   createdAt: new Date().toISOString(),
   destinations: bundle.destinations,
+  ...(bundle.requiredDestinations ? { requiredDestinations } : {}),
   articles: [],
 };
 
@@ -172,16 +179,17 @@ for (const article of [...articles].sort(
   const dir = join(outputDir, `${article.themeIndex + 1}-${slug}`);
   mkdirSync(dir);
   writeFileSync(join(dir, "shopify.html"), article.shopifyBodyHtml);
-  writeFileSync(
-    join(dir, "substack.txt"),
-    [
-      article.substackSubject,
-      article.substackSubtitle || "",
-      "",
-      article.substackBody ||
-        "[Substack distribution content has not been generated.]",
-    ].join("\n"),
-  );
+  if (needsSubstack) {
+    writeFileSync(
+      join(dir, "substack.txt"),
+      [
+        article.substackSubject,
+        article.substackSubtitle || "",
+        "",
+        article.substackBody,
+      ].join("\n"),
+    );
+  }
   const visualBrief = visualEvidence.articles[article.themeIndex];
   writeFileSync(
     join(dir, "cover-brief.json"),

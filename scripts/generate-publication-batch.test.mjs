@@ -61,6 +61,7 @@ test("existing API sequence creates a resumable four-article bundle", async () =
     distribute: 0,
   };
   let scoreInput = null;
+  const distributionTitles = [];
   const productId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
   const server = createServer(async (request, response) => {
     const path = new URL(request.url, "http://localhost").pathname;
@@ -122,6 +123,7 @@ test("existing API sequence creates a resumable four-article bundle", async () =
       response.end(JSON.stringify({ contentJa: "日本語記事" }));
     } else if (path === "/api/distribute") {
       writes.distribute++;
+      distributionTitles.push(input.theme_title_en);
       response.end(
         JSON.stringify({
           distribution: {
@@ -204,10 +206,27 @@ test("existing API sequence creates a resumable four-article bundle", async () =
       );
       assert.equal(result.code, 0, result.stderr);
     }
+    const reviewedTitles = [0, 1, 2, 3].map((index) => ({
+      index,
+      titleEn: `Reviewed factual bowl question number ${index + 1}`,
+      titleJa: `事実確認した器の記事${index + 1}`,
+    }));
+    writeFileSync(
+      join(runDir, "editorial-titles.json"),
+      JSON.stringify({ version: 1, titles: reviewedTitles }),
+    );
     assert.equal((await run("bundle", "--run-dir", runDir)).code, 0);
     assert.equal((await run("bundle", "--run-dir", runDir)).code, 0);
     const bundle = JSON.parse(readFileSync(join(runDir, "bundle.json")));
     assert.equal(bundle.articles.length, 4);
+    assert.deepEqual(
+      bundle.articles.map((article) => article.titleEn),
+      reviewedTitles.map((item) => item.titleEn),
+    );
+    assert.deepEqual(
+      distributionTitles,
+      reviewedTitles.map((item) => item.titleEn),
+    );
     assert.equal(writes.distribute, 4);
     writeFileSync(join(runDir, "editorial-0.html"), "<h1>Changed</h1>");
     assert.match(

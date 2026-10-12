@@ -401,11 +401,38 @@ async function generate() {
 
 async function bundle() {
   const run = config();
+  const destinationOption = option("destinations", false) ?? "shopify,substack";
+  if (!["shopify", "shopify,substack"].includes(destinationOption)) {
+    throw new Error("--destinations must be shopify or shopify,substack.");
+  }
+  const requiredDestinations = destinationOption.split(",");
+  const shopifyOnly = requiredDestinations.length === 1;
   const product = reviewedProduct(run);
   const score = readJson(join(runDir, "score.json"));
+  const titleOverrides = readJson(join(runDir, "editorial-titles.json"));
   const ids = readJson(join(runDir, "article-ids.json"));
   if (!score?.themes || ids?.length !== 4) {
     throw new Error("Generate and confirm four saved articles first.");
+  }
+  if (titleOverrides) {
+    if (
+      titleOverrides.version !== 1 ||
+      !Array.isArray(titleOverrides.titles) ||
+      titleOverrides.titles.length !== 4 ||
+      titleOverrides.titles.some(
+        (item, index) =>
+          item.index !== index ||
+          typeof item.titleEn !== "string" ||
+          item.titleEn.trim().length < 20 ||
+          typeof item.titleJa !== "string" ||
+          item.titleJa.trim().length < 5,
+      ) ||
+      new Set(titleOverrides.titles.map((item) => item.titleEn)).size !== 4
+    ) {
+      throw new Error(
+        "Editorial titles must provide four distinct reviewed titles.",
+      );
+    }
   }
   const currentIds = await remoteArticleIds(run);
   if (ids.some((id, index) => id !== currentIds.get(index))) {
@@ -436,43 +463,54 @@ async function bundle() {
     const distributionPath = join(runDir, `distribution-${index}.json`);
     const inputPath = join(runDir, `distribution-${index}.input.json`);
     const existingDistribution = existsSync(distributionPath);
+    const titleEn =
+      titleOverrides?.titles[index].titleEn ?? score.themes[index].title_en;
     if (
       existingDistribution &&
-      readJson(inputPath)?.editorialHash !== review.sha256
+      (readJson(inputPath)?.editorialHash !== review.sha256 ||
+        (titleOverrides && readJson(inputPath)?.titleEn !== titleEn))
     ) {
       throw new Error(
-        `Distribution ${index + 1} was generated from different copy.`,
+        `Distribution ${index + 1} was generated from different copy or title.`,
       );
     }
-    const distribution = await checkpoint(
-      `distribution-${index}`,
-      distributionPath,
-      () =>
-        post(run.apiBase, "/api/distribute", {
-          article_id: ids[index],
-          theme_title_en: score.themes[index].title_en,
-          content_en: html,
-          product_name_en: product.name_en,
-          product_name_ja: product.name_ja,
-        }),
-    );
-    if (!existingDistribution) {
-      atomicJson(inputPath, { editorialHash: review.sha256 });
-    }
-    const newsletter = distribution.distribution?.newsletter;
-    if (!newsletter?.subject || !newsletter?.body) {
-      throw new Error(`Distribution ${index + 1} lacks Substack copy.`);
+    let newsletter = null;
+    if (!shopifyOnly) {
+      const distribution = await checkpoint(
+        `distribution-${index}`,
+        distributionPath,
+        () =>
+          post(run.apiBase, "/api/distribute", {
+            article_id: ids[index],
+            theme_title_en: titleEn,
+            content_en: html,
+            product_name_en: product.name_en,
+            product_name_ja: product.name_ja,
+          }),
+      );
+      if (!existingDistribution) {
+        atomicJson(inputPath, { editorialHash: review.sha256, titleEn });
+      }
+      newsletter = distribution.distribution?.newsletter;
+      if (!newsletter?.subject || !newsletter?.body) {
+        throw new Error(`Distribution ${index + 1} lacks Substack copy.`);
+      }
     }
     items.push({
       id: ids[index],
       themeIndex: index,
-      titleEn: score.themes[index].title_en,
-      titleJa: score.themes[index].title_ja,
+      titleEn,
+      titleJa:
+        titleOverrides?.titles[index].titleJa ?? score.themes[index].title_ja,
       themeType: score.themes[index].type,
       shopifyBodyHtml: html,
-      substackSubject: newsletter.subject,
-      substackSubtitle: newsletter.subtitle ?? "",
-      substackBody: newsletter.body,
+      ...(newsletter
+        ? {
+            substackSubject: newsletter.subject,
+            substackSubtitle: newsletter.subtitle ?? "",
+            substackBody: newsletter.body,
+          }
+        : {}),
       sources: readJson(join(runDir, `article-${index}.json`))?.sources ?? [],
     });
   }
@@ -499,6 +537,7 @@ async function bundle() {
       shopifyBlog: policy.shopifyBlog,
       substackPublication: new URL(policy.substackOrigin).host,
     },
+    requiredDestinations,
     articles: items,
   };
   if (

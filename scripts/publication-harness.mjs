@@ -52,14 +52,16 @@ function batchForReceipt(state, path) {
 function canQueueNextTheme(state) {
   const active = state.batches.filter((batch) => batch.status !== "complete");
   if (!active.length) return true;
-  if (active.length !== 1) return false;
+  if (active.length >= policy.maximumUnfinishedThemes) return false;
   try {
-    const path = active[0].receiptPath;
-    const receipt = readJson(path);
-    validateReceipt(receipt, path);
-    return receipt.articles.every((article) => {
-      assertReadyForPublish(path, article);
-      return article.shopify?.status === "pending";
+    return active.every((batch) => {
+      const path = batch.receiptPath;
+      const receipt = readJson(path);
+      validateReceipt(receipt, path);
+      return receipt.articles.every((article) => {
+        assertReadyForPublish(path, article);
+        return article.shopify?.status === "pending";
+      });
     });
   } catch {
     return false;
@@ -215,6 +217,12 @@ async function main() {
     }
     const receipt = readJson(receiptPath);
     validateReceipt(receipt, receiptPath);
+    if (
+      receipt.requiredDestinations &&
+      receipt.requiredDestinations.join(",") !== destinations
+    ) {
+      throw new Error("Receipt destinations do not match registration.");
+    }
     if (
       craft &&
       (receipt.sourceType !== "craft" ||

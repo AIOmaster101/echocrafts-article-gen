@@ -2,7 +2,13 @@
 import { randomBytes } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
-import { atomicJson, readJson, withLock } from "./lib/publication-harness.mjs";
+import {
+  assertReadyForPublish,
+  atomicJson,
+  readJson,
+  validateReceipt,
+  withLock,
+} from "./lib/publication-harness.mjs";
 import { planJournalOrder, reviewAges } from "./lib/journal-plan.mjs";
 
 const [command, ...args] = process.argv.slice(2);
@@ -23,6 +29,32 @@ try {
     const input = readJson(resolve(option("input")));
     const output = resolve(option("output"));
     if (input?.version !== 1) throw new Error("Expected version 1 plan input.");
+    const policy = readJson(
+      join(import.meta.dirname, "../config/publication-policy.json"),
+    );
+    if (
+      !Array.isArray(input.themes) ||
+      input.themes.length < policy.minimumReadyThemesForShopifyPublish
+    ) {
+      throw new Error(
+        `At least ${policy.minimumReadyThemesForShopifyPublish} ready themes are required for a Shopify plan.`,
+      );
+    }
+    for (const theme of input.themes) {
+      for (const item of theme.articles ?? []) {
+        const receiptPath = resolve(item.receiptPath);
+        const receipt = readJson(receiptPath);
+        validateReceipt(receipt, receiptPath);
+        const article = receipt.articles.find(
+          (entry) =>
+            entry.themeIndex === item.index && entry.handle === item.handle,
+        );
+        if (!article || article.shopify?.status !== "pending") {
+          throw new Error(`Theme ${theme.id} is not fully ready.`);
+        }
+        assertReadyForPublish(receiptPath, article);
+      }
+    }
     if (!input.recentThemeId || typeof input.recentThemeId !== "string") {
       throw new Error(
         "The actual Journal top card's recentThemeId is required.",
@@ -35,6 +67,13 @@ try {
     ) {
       throw new Error("recentVisualGroup must be a nonempty string.");
     }
+    if (
+      input.recentEditorialAngle != null &&
+      (typeof input.recentEditorialAngle !== "string" ||
+        !input.recentEditorialAngle.trim())
+    ) {
+      throw new Error("recentEditorialAngle must be a nonempty string.");
+    }
     if (existsSync(output))
       throw new Error("Plan already exists; resume its saved order.");
     const seed = input.seed ?? randomBytes(16).toString("hex");
@@ -43,6 +82,7 @@ try {
       input.recentThemeId,
       seed,
       input.recentVisualGroup ?? null,
+      input.recentEditorialAngle ?? null,
     );
     const plan = {
       version: 1,
@@ -50,6 +90,7 @@ try {
       seed,
       recentThemeId: input.recentThemeId ?? null,
       recentVisualGroup: input.recentVisualGroup ?? null,
+      recentEditorialAngle: input.recentEditorialAngle ?? null,
       items,
       events: [],
     };

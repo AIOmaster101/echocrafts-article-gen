@@ -228,7 +228,7 @@ test("selection rejects unpublished, empty, or imageless products", () => {
   assert.equal(chooseCandidate(catalog, { batches: [] }, policy).kind, "none");
 });
 
-test("a reviewed theme can queue a second theme and Shopify-only receipts can complete", () => {
+test("three reviewed themes can queue, but a fourth cannot", () => {
   const first = fixture();
   const secondProduct = {
     ...product,
@@ -237,6 +237,13 @@ test("a reviewed theme can queue a second theme and Shopify-only receipts can co
     onlineStoreUrl: "https://modernjapancrafts.com/products/other-bowl",
   };
   const second = fixture(secondProduct);
+  const thirdProduct = {
+    ...product,
+    id: "gid://shopify/Product/44",
+    handle: "perfume-bottle",
+    onlineStoreUrl: "https://modernjapancrafts.com/products/perfume-bottle",
+  };
+  const third = fixture(thirdProduct);
   const register = (entry) =>
     cli(
       first.home,
@@ -295,7 +302,7 @@ test("a reviewed theme can queue a second theme and Shopify-only receipts can co
     catalog,
     JSON.stringify({
       products: {
-        nodes: [product, secondProduct],
+        nodes: [product, secondProduct, thirdProduct],
         pageInfo: { hasNextPage: false, endCursor: null },
       },
     }),
@@ -313,6 +320,59 @@ test("a reviewed theme can queue a second theme and Shopify-only receipts can co
     secondProduct.handle,
   );
   assert.equal(register(second).status, 0);
+  for (let index = 0; index < 4; index++) {
+    const cover = join(second.home, `cover-${index}.png`);
+    writeFileSync(
+      cover,
+      Buffer.concat([
+        Buffer.from("89504e470d0a1a0a", "hex"),
+        Buffer.alloc(10000, index + 4),
+      ]),
+    );
+    assert.equal(
+      cli(
+        first.home,
+        "review",
+        "--receipt",
+        second.receipt,
+        "--index",
+        String(index),
+        "--note",
+        "Checked all claims against the live source page.",
+        "--source-url",
+        secondProduct.onlineStoreUrl,
+      ).status,
+      0,
+    );
+    assert.equal(
+      cli(
+        first.home,
+        "cover",
+        "--receipt",
+        second.receipt,
+        "--index",
+        String(index),
+        "--path",
+        cover,
+        "--note",
+        "Compared with the actual product photograph.",
+      ).status,
+      0,
+    );
+  }
+  const selectedThird = cli(
+    first.home,
+    "select",
+    "--catalog",
+    catalog,
+    "--next-theme",
+  );
+  assert.equal(selectedThird.status, 0, selectedThird.stderr);
+  assert.equal(
+    JSON.parse(selectedThird.stdout).product.handle,
+    thirdProduct.handle,
+  );
+  assert.equal(register(third).status, 0);
   assert.notEqual(
     cli(first.home, "select", "--catalog", catalog, "--next-theme").status,
     0,
