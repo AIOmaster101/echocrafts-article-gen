@@ -1,0 +1,12 @@
+query CheckJournalArticle($id: ID!) {
+  article(id: $id) {
+    id
+    title
+    handle
+    isPublished
+    image {
+      url
+      altText
+    }
+  }
+}

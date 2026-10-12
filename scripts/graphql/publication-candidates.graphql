@@ -1,0 +1,31 @@
+query PublicationCandidates($after: String) {
+  products(
+    first: 50
+    query: "status:active"
+    sortKey: UPDATED_AT
+    reverse: true
+    after: $after
+  ) {
+    nodes {
+      id
+      title
+      handle
+      status
+      updatedAt
+      onlineStoreUrl
+      totalInventory
+      descriptionHtml
+      featuredMedia {
+        preview {
+          image {
+            url
+          }
+        }
+      }
+    }
+    pageInfo {
+      hasNextPage
+      endCursor
+    }
+  }
+}

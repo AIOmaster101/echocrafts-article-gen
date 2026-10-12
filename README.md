@@ -1,3 +1,13 @@
+# EchoCrafts Article Generator
+
+A Next.js application for preparing English and Japanese articles about Japanese craft products. It uses Claude for article generation and Supabase for storage.
+
+For the four-article Shopify Journal and Substack publication workflow, see [docs/four-article-publication.md](docs/four-article-publication.md).
+
+For product-first selection with a craft-category fallback, generation checkpoints, publication receipts, and the daily run contract, see [docs/daily-publication-harness.md](docs/daily-publication-harness.md).
+
+This branch shares local publication scripts and operating guidance. It does not add an application screen or deploy the application. Generated covers and `.tmp` publication receipts stay local.
+
 This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
 
 ## Getting Started

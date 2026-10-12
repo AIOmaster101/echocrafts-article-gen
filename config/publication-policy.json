@@ -1,0 +1,13 @@
+{
+  "version": 1,
+  "shopifyStore": "xffvf7-e1.myshopify.com",
+  "shopifyOrigin": "https://modernjapancrafts.com",
+  "shopifyBlog": "journal",
+  "substackOrigin": "https://modernjapancrafts.substack.com",
+  "substackDelivery": "web-only",
+  "defaultQ1": "interview_no",
+  "defaultQ2": "position_auto",
+  "excludedProductHandles": [
+    "champagne-saucer-glass-230ml-ranshi-urushi-lacquer-dishwasher-safe"
+  ]
+}

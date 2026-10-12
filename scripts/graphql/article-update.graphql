@@ -1,0 +1,17 @@
+mutation UpdateJournalArticle($id: ID!, $article: ArticleUpdateInput!) {
+  articleUpdate(id: $id, article: $article) {
+    article {
+      id
+      title
+      handle
+      isPublished
+      image {
+        url
+      }
+    }
+    userErrors {
+      field
+      message
+    }
+  }
+}
