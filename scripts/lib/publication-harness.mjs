@@ -60,9 +60,14 @@ export function catalogProducts(value) {
   return nodes;
 }
 
-export function chooseCandidate(catalog, ledger, policy) {
+export function chooseCandidate(
+  catalog,
+  ledger,
+  policy,
+  allowNextTheme = false,
+) {
   const active = ledger.batches?.find((batch) => batch.status !== "complete");
-  if (active) return { kind: "resume", batch: active };
+  if (active && !allowNextTheme) return { kind: "resume", batch: active };
 
   const used = new Set([
     ...(policy.excludedProductHandles ?? []),
@@ -123,9 +128,14 @@ export function chooseCandidate(catalog, ledger, policy) {
   };
 }
 
-export function chooseCraftCandidate(catalog, ledger, policy) {
+export function chooseCraftCandidate(
+  catalog,
+  ledger,
+  policy,
+  allowNextTheme = false,
+) {
   const active = ledger.batches?.find((batch) => batch.status !== "complete");
-  if (active) return { kind: "resume", batch: active };
+  if (active && !allowNextTheme) return { kind: "resume", batch: active };
   if (!Array.isArray(catalog))
     throw new Error("Expected a complete craft catalog.");
   const used = new Set([
@@ -200,6 +210,17 @@ export function validateReceipt(receipt, receiptPath) {
     receipt.articles.length !== 4
   ) {
     throw new Error("Receipt must contain exactly four articles.");
+  }
+  const targets = receipt.requiredDestinations ?? ["shopify", "substack"];
+  if (
+    !Array.isArray(targets) ||
+    !targets.includes("shopify") ||
+    targets.some((target) => !["shopify", "substack"].includes(target)) ||
+    new Set(targets).size !== targets.length
+  ) {
+    throw new Error(
+      "Receipt destinations must be Shopify or Shopify and Substack.",
+    );
   }
   const indexes = receipt.articles.map((article) => article.themeIndex);
   if (
@@ -292,10 +313,9 @@ export function assertReadyForPublish(receiptPath, article) {
 }
 
 export function receiptStatus(receipt) {
-  return receipt.articles.every(
-    (article) =>
-      article.shopify?.status === "verified" &&
-      article.substack?.status === "verified",
+  const targets = receipt.requiredDestinations ?? ["shopify", "substack"];
+  return receipt.articles.every((article) =>
+    targets.every((target) => article[target]?.status === "verified"),
   )
     ? "complete"
     : "active";

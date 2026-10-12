@@ -7,6 +7,10 @@
   "substackDelivery": "web-only",
   "defaultQ1": "interview_no",
   "defaultQ2": "position_auto",
+  "reviewAfterDays": 21,
+  "newQuestionReviewAfterDays": 28,
+  "avoidAdjacentShopifyThemes": true,
+  "minimumReadyThemesForShopifyPublish": 2,
   "excludedProductHandles": [
     "champagne-saucer-glass-230ml-ranshi-urushi-lacquer-dishwasher-safe"
   ]

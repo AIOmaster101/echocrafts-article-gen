@@ -1,0 +1,21 @@
+query JournalAudit($after: String) {
+  blogs(first: 10, query: "handle:journal") {
+    nodes {
+      handle
+      articles(first: 250, after: $after, reverse: true) {
+        nodes {
+          id
+          title
+          handle
+          publishedAt
+          updatedAt
+          isPublished
+        }
+        pageInfo {
+          hasNextPage
+          endCursor
+        }
+      }
+    }
+  }
+}

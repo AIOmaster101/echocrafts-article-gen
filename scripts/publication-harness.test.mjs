@@ -12,6 +12,7 @@ import {
   chooseCraftCandidate,
   publicPageChecks,
   readJson,
+  receiptStatus,
   validateDestination,
 } from "./lib/publication-harness.mjs";
 
@@ -81,7 +82,7 @@ function makeCover(path) {
   );
 }
 
-function fixture() {
+function fixture(sourceProduct = product) {
   const home = mkdtempSync(join(tmpdir(), "publication-harness-"));
   const cover = join(home, "cover.png");
   makeCover(cover);
@@ -90,7 +91,7 @@ function fixture() {
     product: {
       id: "source-product-1",
       nameEn: "Handmade Bowl",
-      sourceUrls: [product.onlineStoreUrl],
+      sourceUrls: [sourceProduct.onlineStoreUrl],
     },
     destinations: {
       shopifyStore: policy.shopifyStore,
@@ -98,10 +99,10 @@ function fixture() {
       substackPublication: new URL(policy.substackOrigin).host,
     },
     articles: [0, 1, 2, 3].map((index) => ({
-      id: `source-article-${index}`,
+      id: `source-article-${sourceProduct.handle}-${index}`,
       themeIndex: index,
       titleEn: `Bowl Story ${index + 1}`,
-      shopifyBodyHtml: `<h1>Bowl Story ${index + 1}</h1><p><a href="${product.onlineStoreUrl}">Bowl</a></p>`,
+      shopifyBodyHtml: `<h1>Bowl Story ${index + 1}</h1><p><a href="${sourceProduct.onlineStoreUrl}">Bowl</a></p>`,
       substackSubject: `The Bowl ${index + 1}`,
       substackBody: `A story about the bowl ${index + 1}.`,
       sources: [],
@@ -115,8 +116,8 @@ function fixture() {
     visualEvidencePath,
     JSON.stringify({
       version: 1,
-      productUrl: product.onlineStoreUrl,
-      referenceImages: [product.featuredMedia.preview.image.url],
+      productUrl: sourceProduct.onlineStoreUrl,
+      referenceImages: [sourceProduct.featuredMedia.preview.image.url],
       referenceFiles: ["product-reference.jpg"],
       dimensions: "120 mm diameter, 60 mm high",
       visibleFeatures: "glazed bowl with a round foot",
@@ -146,9 +147,9 @@ function fixture() {
     JSON.stringify({
       kind: "candidate",
       product: {
-        id: product.id,
-        handle: product.handle,
-        url: product.onlineStoreUrl,
+        id: sourceProduct.id,
+        handle: sourceProduct.handle,
+        url: sourceProduct.onlineStoreUrl,
       },
     }),
   );
@@ -225,6 +226,114 @@ test("selection rejects unpublished, empty, or imageless products", () => {
     },
   };
   assert.equal(chooseCandidate(catalog, { batches: [] }, policy).kind, "none");
+});
+
+test("a reviewed theme can queue a second theme and Shopify-only receipts can complete", () => {
+  const first = fixture();
+  const secondProduct = {
+    ...product,
+    id: "gid://shopify/Product/43",
+    handle: "other-bowl",
+    onlineStoreUrl: "https://modernjapancrafts.com/products/other-bowl",
+  };
+  const second = fixture(secondProduct);
+  const register = (entry) =>
+    cli(
+      first.home,
+      "register",
+      "--receipt",
+      entry.receipt,
+      "--candidate",
+      entry.candidate,
+      "--destinations",
+      "shopify",
+    );
+  assert.equal(register(first).status, 0);
+  assert.notEqual(register(second).status, 0);
+  for (let index = 0; index < 4; index++) {
+    const cover = join(first.home, `cover-${index}.png`);
+    writeFileSync(
+      cover,
+      Buffer.concat([
+        Buffer.from("89504e470d0a1a0a", "hex"),
+        Buffer.alloc(10000, index),
+      ]),
+    );
+    assert.equal(
+      cli(
+        first.home,
+        "review",
+        "--receipt",
+        first.receipt,
+        "--index",
+        String(index),
+        "--note",
+        "Checked all claims against the live source page.",
+        "--source-url",
+        product.onlineStoreUrl,
+      ).status,
+      0,
+    );
+    assert.equal(
+      cli(
+        first.home,
+        "cover",
+        "--receipt",
+        first.receipt,
+        "--index",
+        String(index),
+        "--path",
+        cover,
+        "--note",
+        "Compared with the actual product photograph.",
+      ).status,
+      0,
+    );
+  }
+  const catalog = join(first.home, "catalog.json");
+  writeFileSync(
+    catalog,
+    JSON.stringify({
+      products: {
+        nodes: [product, secondProduct],
+        pageInfo: { hasNextPage: false, endCursor: null },
+      },
+    }),
+  );
+  const selected = cli(
+    first.home,
+    "select",
+    "--catalog",
+    catalog,
+    "--next-theme",
+  );
+  assert.equal(selected.status, 0, selected.stderr);
+  assert.equal(
+    JSON.parse(selected.stdout).product.handle,
+    secondProduct.handle,
+  );
+  assert.equal(register(second).status, 0);
+  assert.notEqual(
+    cli(first.home, "select", "--catalog", catalog, "--next-theme").status,
+    0,
+  );
+  const receipt = readJson(first.receipt);
+  assert.deepEqual(receipt.requiredDestinations, ["shopify"]);
+  assert.match(
+    cli(
+      first.home,
+      "substack",
+      "--receipt",
+      first.receipt,
+      "--index",
+      "0",
+      "--url",
+      "https://modernjapancrafts.substack.com/p/other-bowl",
+    ).stderr,
+    /outside this receipt/,
+  );
+  for (const article of receipt.articles) article.shopify.status = "verified";
+  assert.equal(receiptStatus(receipt), "complete");
 });
 
 test("registration and publish guards survive CLI process restarts", () => {

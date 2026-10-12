@@ -1,6 +1,6 @@
 # Daily four-article publication harness
 
-This is the local operating contract for one product or craft category, four English articles, four distinct covers, and two public destinations. The owner authorized recurring web publication on 2026-10-04. One run may produce eight public pages. Substack email and app delivery remain off.
+This is the local operating contract for one product or craft category, four English articles, and four distinct covers. Existing runs used two public destinations. A newly registered run may target Shopify only. Substack email and app delivery remain off.
 
 ## Surfaces and limits
 
@@ -14,8 +14,8 @@ The local repository branch is **not deployed**. Run the scripts from this check
 
 ## One batch
 
-1. Read `config/publication-policy.json`, `.tmp/publication-harness/ledger.json` if present, and this runbook. If a batch is active, resume it before selecting another source. Do not launch two batches in parallel.
-2. Run `scripts/graphql/publication-candidates.graphql` through the Shopify connector with `after: null`. Save its JSON data locally under `.tmp/publication-harness/catalog.json`. Run `node scripts/publication-harness.mjs select --catalog .tmp/publication-harness/catalog.json`. This excludes the previously published Ranshi product and every product in the ledger. A candidate must be active, in stock, publicly linked, described, and photographed. Inspect the actual product page and image. If source facts are weak or the product already has four articles, save the candidate JSON and run `skip --candidate <file> --reason <specific-reason>`, then select again. If selection returns `more_products`, run the query with the returned `cursor` as `after`, save that page, and select again. Do not use craft mode until the final Shopify page has been checked. On the final page, `select` reads the existing craft catalog and picks an unused category with approved or edited facts tied to Tier 1/2 HTTPS sources. Save the craft selection as `candidate.json`; verify its cited pages. If the facts are weak, use `skip --candidate <file> --reason <specific-reason>` and select again. A catalog read error stops the run.
+1. Read `config/publication-policy.json`, `.tmp/publication-harness/ledger.json` if present, and this runbook. Resume an active batch until its four articles have reviewed copy and covers. Then `select --next-theme` may choose one more source while the first theme remains queued. At most two unfinished themes may coexist. Do not publish either until both are ready and a Journal order plan is saved.
+2. Run `scripts/graphql/publication-candidates.graphql` through the Shopify connector with `after: null`. Save its JSON data locally under `.tmp/publication-harness/catalog.json`. Run `node scripts/publication-harness.mjs select --catalog .tmp/publication-harness/catalog.json`; add `--next-theme` only after the first queued batch is fully reviewed and covered. This excludes the previously published Ranshi product and every product in the ledger. A candidate must be active, in stock, publicly linked, described, and photographed. Inspect the actual product page and image. If source facts are weak or the product already has four articles, save the candidate JSON and run `skip --candidate <file> --reason <specific-reason>`, then select again. If selection returns `more_products`, run the query with the returned `cursor` as `after`, save that page, and select again. Do not use craft mode until the final Shopify page has been checked. On the final page, `select` reads the existing craft catalog and picks an unused category with approved or edited facts tied to Tier 1/2 HTTPS sources. Save the craft selection as `candidate.json`; verify its cited pages. If the facts are weak, use `skip --candidate <file> --reason <specific-reason>` and select again. A catalog read error stops the run.
 3. Save the returned candidate JSON under the new run directory, for example `.tmp/publication-harness/runs/YYYY-MM-DD-<handle>/candidate.json`. Start generation:
 
    ```sh
@@ -43,16 +43,96 @@ The local repository branch is **not deployed**. Run the scripts from this check
 
    Repeat for indexes 1–3. Then run `node scripts/generate-publication-batch.mjs bundle --run-dir .tmp/publication-harness/runs/<run>`. This uses the four saved article IDs to call the existing distribution API and writes `bundle.json`.
 
-6. Write `<run-dir>/visual-evidence.json` after checking the live listing. It must contain `version: 1`, `productUrl`, one or more HTTPS `referenceImages`, matching local `referenceFiles` paths relative to the evidence file, verified `dimensions` and `visibleFeatures`, and four `articles` entries with `themeIndex` 0–3, unique `scene`, and article-specific `visualFocus`; add `variant` when relevant. For craft mode, use verified category reference images and omit product-specific claims. Download and inspect the referenced images; do not pass URLs as text alone to the image tool. The preparation command checks the files and records their hashes. Run `node scripts/prepare-publication.mjs <run-dir>/bundle.json <run-dir>/publication --visual-evidence <run-dir>/visual-evidence.json`, then `node scripts/publication-harness.mjs register --receipt <run-dir>/publication/receipt.json --candidate <run-dir>/candidate.json`. Do not register a second batch while one is active. For each article, record the editorial evidence using `review --receipt ... --index N --source-url <product-or-craft-evidence-url> --note <specific-checks>`. For craft categories, confirm the encyclopedia link is public; if not, replace it with a verified cited source in the reviewed HTML.
+6. Write `<run-dir>/visual-evidence.json` after checking the live listing. It must contain `version: 1`, `productUrl`, one or more HTTPS `referenceImages`, matching local `referenceFiles` paths relative to the evidence file, verified `dimensions` and `visibleFeatures`, and four `articles` entries with `themeIndex` 0–3, unique `scene`, and article-specific `visualFocus`; add `variant` when relevant. For craft mode, use verified category reference images and omit product-specific claims. Download and inspect the referenced images; do not pass URLs as text alone to the image tool. The preparation command checks the files and records their hashes. Run `node scripts/prepare-publication.mjs <run-dir>/bundle.json <run-dir>/publication --visual-evidence <run-dir>/visual-evidence.json`, then `node scripts/publication-harness.mjs register --receipt <run-dir>/publication/receipt.json --candidate <run-dir>/candidate.json`. Add `--destinations shopify` when this run is Shopify only; omission retains the existing two-destination contract. A second batch can register only after the first has four reviewed articles and covers, before any Shopify write. For each article, record the editorial evidence using `review --receipt ... --index N --source-url <product-or-craft-evidence-url> --note <specific-checks>`. For craft categories, confirm the encyclopedia link is public; if not, replace it with a verified cited source in the reviewed HTML.
 7. Generate four different 1536×1024 or larger covers from the article-specific `cover-brief.json` and `cover-prompt.txt`, passing the actual `sourceImageInputs` files to the image tool. Compose four different everyday scenes with distinct activities, camera positions, light, and props. Keep the product recognizable at Journal-card size and physically plausible beside known-scale objects. Never reuse a composition, show an unverified variant, or imply unsupported care or food-contact use. Inspect each image at full size and as a three-column card, comparing silhouette, proportions, rim, foot, pattern, finish, and scale against the actual source images. Reject a candidate if its physical product differs, and generate a correction from the verified source photographs. Put the chosen PNG/JPEG in its article directory and run `cover --receipt ... --index N --path <file> --note <visual-comparison>`. Never use the same cover twice.
-8. For each article, query Shopify articles by `handle:<handle>` with `scripts/graphql/article-by-handle.graphql` and confirm the `journal` blog. If an exact article exists, inspect and update it with `article-update.graphql`; otherwise upload the cover with `staged-uploads-create.graphql` and `file-create.graphql`, then create with `article-create.graphql`. Use the reviewed HTML, published status, canonical handle, and Shopify CDN image URL. Check GraphQL `userErrors`. Record the returned article ID and actual URL with `publication-harness.mjs shopify ...`, then run `verify --site shopify ...`. Do not continue to Substack until Shopify is verified.
-9. In the authenticated Substack editor, create or resume the exact post. Insert the matching generated cover at the very beginning. Use `substack.txt` subject, subtitle, and body, with a clickable link to the verified Shopify article. Publish **to web only**, with email and Substack app delivery disabled. Inspect the visible public post. Record its actual URL with `publication-harness.mjs substack ...`; then run `verify --site substack ...`. Never infer a URL from a draft title.
-10. Run `node scripts/publication-harness.mjs status --receipt <run-dir>/publication/receipt.json`. A batch is complete only when all eight destinations are `verified`. Report all eight actual URLs, the selected product or craft category, cover paths, and any stopped step. Do not report revenue or traffic effects without measurement.
+8. Before any Shopify write, require at least two ready four-article themes and save the Journal order plan described below. A single ready theme stays queued; publishing its four articles together would repeat the current visual problem. For each article in the saved plan order, query Shopify articles by `handle:<handle>` with `scripts/graphql/article-by-handle.graphql` and confirm the `journal` blog. If an exact article exists, inspect and update it with `article-update.graphql`; otherwise upload the cover with `staged-uploads-create.graphql` and `file-create.graphql`, then create with `article-create.graphql`. Use the reviewed HTML, published status, canonical handle, and Shopify CDN image URL. Check GraphQL `userErrors`. Record the returned article ID and actual URL with `publication-harness.mjs shopify ...`, then run `verify --site shopify ...` and `journal-plan.mjs record`. Do not continue to Substack until Shopify is verified.
+9. Only when the receipt requires Substack, use its authenticated editor to create or resume the exact post. Insert the matching generated cover at the very beginning. Use `substack.txt` subject, subtitle, and body, with a clickable link to the verified Shopify article. Publish **to web only**, with email and Substack app delivery disabled. Inspect the visible public post. Record its actual URL with `publication-harness.mjs substack ...`; then run `verify --site substack ...`. Never infer a URL from a draft title. Shopify-only receipts must not write to Substack.
+10. Run `node scripts/publication-harness.mjs status --receipt <run-dir>/publication/receipt.json`. A batch is complete only when every required destination is `verified`: four Shopify URLs for a Shopify-only receipt, or eight URLs for a two-destination receipt. Report the actual URLs, the selected product or craft category, cover paths, and any stopped step. Do not report revenue or traffic effects without measurement.
 
 ## Invocation and schedule
 
-When the owner says “ブログ4本を1テーマで公開”, run this contract once. A named theme takes priority over automatic candidate ranking; select a live product that supports it and still apply the same evidence and duplicate checks. The daily Codex heartbeat runs this contract once per day and may publish without a new approval. It must remain quiet when there is no eligible product or craft category and no change, and report a completion, failure, or action required. If there are already four active articles for the selected product in either destination, skip it.
+When the owner says “ブログ4本を1テーマで公開”, prepare the four-article batch and queue it. A named theme takes priority over automatic candidate ranking; select a live product that supports it and still apply the same evidence and duplicate checks. Publish only after another ready theme exists and the saved order plan alternates them. The daily Codex heartbeat may prepare a theme without a new approval, but it must not publish four same-theme Shopify cards consecutively. It must remain quiet when there is no eligible product or craft category and no change, and report a completion, failure, or action required. If there are already four active articles for the selected product in either destination, skip it.
 
-The Journal orders cards by publication time. Keep existing posts' dates intact. When a request runs two new four-article themes together and both sets are ready, alternate publication events between the themes so the grid does not show four near-identical products in a row. Check the actual Journal grid afterward. A daily one-theme run still needs four visibly distinct scenes.
+The Journal orders cards by publication time and paginates seven articles per page. Keep existing posts' dates intact. Do not randomize the visible card order per page load: that would make pagination and internal-link prominence unstable. When two new four-article themes are ready, alternate publication events between them so the grid does not show four near-identical products in a row. Assign each cover a broad `visualGroup` based on its visible scene, such as `tea-table`, `shelf`, or `writing-desk`, and use the plan's optional visual guard to separate matching groups across themes. Check the actual desktop and mobile Journal grid afterward; metadata cannot replace visual inspection. Four visibly distinct scenes remain required within each theme. This changes future batches; the existing October 10 groups remain consecutive until other content is published above them or the storefront layout is separately changed.
+
+### Shopify order and aging review
+
+Before publishing, query `scripts/graphql/journal-audit.graphql` and save the complete result in the ignored run directory. Check `pageInfo.hasNextPage` and continue pagination if necessary. Run `node scripts/journal-plan.mjs review --input <audit.json>`. The 21-day and 28-day marks are editorial reminders only. `updatedAt` can change for an image edit and does not prove that the text improved. Review older pages for outdated facts, weak or duplicate content, and useful additions. Preserve the URL and original `publishedAt` for a substantive correction. Create a new article only for a distinct, sourced reader question. Do not make token text changes or reset dates for a presumed search boost. Google does not define a 3–4 week ranking expiry.
+
+When two or more four-article themes are fully reviewed and covered, save a version-1 plan input with `recentThemeId`, optional `recentVisualGroup`, optional `seed`, and `themes`. Each theme has a unique `id` and four `articles`; each article needs `handle`, zero-based `index`, and absolute `receiptPath`. `recentThemeId` and `recentVisualGroup` describe the current top card from the Shopify readback. If any planned article has `visualGroup`, all planned articles must have one. The planner then rejects adjacent theme or visual-group matches and asks for different scenes if no complete order exists. Example:
+
+```json
+{
+  "version": 1,
+  "recentThemeId": "peony-bowl",
+  "recentVisualGroup": "tea-table",
+  "themes": [
+    {
+      "id": "new-glass",
+      "articles": [
+        {
+          "handle": "example-one",
+          "index": 0,
+          "visualGroup": "shelf",
+          "receiptPath": "/absolute/path/to/receipt.json"
+        },
+        {
+          "handle": "example-two",
+          "index": 1,
+          "visualGroup": "writing-desk",
+          "receiptPath": "/absolute/path/to/receipt.json"
+        },
+        {
+          "handle": "example-three",
+          "index": 2,
+          "visualGroup": "tea-table",
+          "receiptPath": "/absolute/path/to/receipt.json"
+        },
+        {
+          "handle": "example-four",
+          "index": 3,
+          "visualGroup": "reading-chair",
+          "receiptPath": "/absolute/path/to/receipt.json"
+        }
+      ]
+    },
+    {
+      "id": "new-ceramic",
+      "articles": [
+        {
+          "handle": "another-one",
+          "index": 0,
+          "visualGroup": "tea-table",
+          "receiptPath": "/absolute/path/to/other-receipt.json"
+        },
+        {
+          "handle": "another-two",
+          "index": 1,
+          "visualGroup": "shelf",
+          "receiptPath": "/absolute/path/to/other-receipt.json"
+        },
+        {
+          "handle": "another-three",
+          "index": 2,
+          "visualGroup": "reading-chair",
+          "receiptPath": "/absolute/path/to/other-receipt.json"
+        },
+        {
+          "handle": "another-four",
+          "index": 3,
+          "visualGroup": "writing-desk",
+          "receiptPath": "/absolute/path/to/other-receipt.json"
+        }
+      ]
+    }
+  ]
+}
+```
+
+Run `node scripts/journal-plan.mjs plan --input <input.json> --output <plan.json>`. This saves a random seed and a reproducible order that forbids adjacent theme matches, including the current top card. Publish the next planned article through the normal Shopify steps, verify its public page with `publication-harness.mjs verify`, and then run `node scripts/journal-plan.mjs record --plan <plan.json> --handle <handle>`. Continue in plan order. If a write has an uncertain outcome, inspect Shopify by handle and the receipt before retrying. Finally re-query the actual Journal, confirm its first eight cards match the recorded order in reverse, and keep the query result beside the plan. One ready theme cannot meet the no-adjacent rule; wait for a second ready theme or obtain a different display-order choice from the owner.
+
+### Channel evidence before resuming Substack
+
+The 2026-10-12 Clavio acquisition readback covers GA4 through 2026-10-09. Over its 30-day window, 435 of 791 Shopify-site sessions landed under blog paths across Journal and Crafts. The ranked Journal rows show at least 60 sessions across four URLs. No session source is labeled Substack, but the current Substack-to-Shopify links have no UTM tags and Clavio does not include Substack's own post-view or subscriber totals. This supports Shopify as the immediate owned content destination; it does not establish that Substack has no readers or commercial value. Before restarting Substack, inspect its native per-post views and subscriptions over the same dates and add distinct UTM-tagged links to the Shopify article and product. Compare source-specific sessions and downstream actions without claiming a sale was caused by a post solely from a landing-page row.
 
 No API keys, sessions, or customer data belong in the run directory or Git. The ledger and run artifacts live under ignored `.tmp/publication-harness/`. Preserve them across daily runs; backing up or moving this checkout requires moving that directory too.

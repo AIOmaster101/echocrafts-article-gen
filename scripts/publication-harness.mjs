@@ -49,6 +49,23 @@ function batchForReceipt(state, path) {
   return batch;
 }
 
+function canQueueNextTheme(state) {
+  const active = state.batches.filter((batch) => batch.status !== "complete");
+  if (!active.length) return true;
+  if (active.length !== 1) return false;
+  try {
+    const path = active[0].receiptPath;
+    const receipt = readJson(path);
+    validateReceipt(receipt, path);
+    return receipt.articles.every((article) => {
+      assertReadyForPublish(path, article);
+      return article.shopify?.status === "pending";
+    });
+  } catch {
+    return false;
+  }
+}
+
 function mutate(receiptPath, callback) {
   const path = resolve(receiptPath);
   return withLock(lockPath, () => {
@@ -79,7 +96,7 @@ function assertSameOrEmpty(existing, next, label) {
   }
 }
 
-async function selectCraft(apiBase, state) {
+async function selectCraft(apiBase, state, allowNextTheme) {
   async function get(path) {
     const response = await fetch(`${apiBase}${path}`, {
       signal: AbortSignal.timeout(30000),
@@ -115,7 +132,12 @@ async function selectCraft(apiBase, state) {
         return { item, facts: factResult.facts, sources };
       }),
     );
-    const selected = chooseCraftCandidate(entries, state, policy);
+    const selected = chooseCraftCandidate(
+      entries,
+      state,
+      policy,
+      allowNextTheme,
+    );
     if (selected.kind !== "none") return selected;
   }
   return { kind: "none" };
@@ -125,7 +147,18 @@ async function main() {
   if (command === "select") {
     const catalog = readJson(resolve(option("catalog")));
     const state = ledger();
-    const productSelection = chooseCandidate(catalog, state, policy);
+    const allowNextTheme = args.includes("--next-theme");
+    if (allowNextTheme && !canQueueNextTheme(state)) {
+      throw new Error(
+        "Finish reviewing the first theme before selecting another.",
+      );
+    }
+    const productSelection = chooseCandidate(
+      catalog,
+      state,
+      policy,
+      allowNextTheme,
+    );
     if (productSelection.kind !== "none") {
       console.log(JSON.stringify(productSelection, null, 2));
       return;
@@ -133,7 +166,7 @@ async function main() {
     const apiBase = new URL(
       option("api-base", false) ?? "https://echocrafts-article-gen.vercel.app",
     ).origin;
-    const craftSelection = await selectCraft(apiBase, state);
+    const craftSelection = await selectCraft(apiBase, state, allowNextTheme);
     console.log(JSON.stringify(craftSelection, null, 2));
     return;
   }
@@ -141,6 +174,10 @@ async function main() {
   if (command === "register") {
     const receiptPath = resolve(option("receipt"));
     const candidate = readJson(resolve(option("candidate")));
+    const destinations = option("destinations", false) ?? "shopify,substack";
+    if (!["shopify", "shopify,substack"].includes(destinations)) {
+      throw new Error("--destinations must be shopify or shopify,substack.");
+    }
     const craft = candidate?.kind === "craft" ? candidate.craft : null;
     const product = craft ? null : (candidate?.product ?? candidate);
     if (craft) {
@@ -223,7 +260,7 @@ async function main() {
         );
       }
       if (
-        state.batches.some((item) => item.status !== "complete") ||
+        !canQueueNextTheme(state) ||
         state.batches.some(
           (item) => product && item.product?.handle === product.handle,
         ) ||
@@ -237,9 +274,11 @@ async function main() {
         (product && policy.excludedProductHandles.includes(product.handle))
       ) {
         throw new Error(
-          "An active batch or previously used product blocks registration.",
+          "A publishing batch or previously used product blocks registration.",
         );
       }
+      receipt.requiredDestinations = destinations.split(",");
+      atomicJson(receiptPath, receipt);
       state.batches.push({
         id: `${new Date().toISOString().slice(0, 10)}-${craft ? `craft-${craft.slug}` : product.handle}`,
         ...(craft ? { craft } : { product }),
@@ -267,7 +306,7 @@ async function main() {
     }
     withLock(lockPath, () => {
       const state = ledger();
-      if (state.batches.some((item) => item.status !== "complete")) {
+      if (!canQueueNextTheme(state)) {
         throw new Error(
           "Resume the active batch before skipping a new product.",
         );
@@ -372,6 +411,15 @@ async function main() {
       throw new Error("Expected a Shopify Article GID.");
     }
     mutate(path, (receipt) => {
+      if (
+        !(receipt.requiredDestinations ?? ["shopify", "substack"]).includes(
+          command,
+        )
+      ) {
+        throw new Error(
+          `${command} is outside this receipt's publication targets.`,
+        );
+      }
       const article = articleFor(receipt);
       assertReadyForPublish(resolve(path), article);
       if (command === "substack" && article.shopify.status !== "verified") {
@@ -407,6 +455,11 @@ async function main() {
     }
     const receipt = readJson(path);
     validateReceipt(receipt, path);
+    if (
+      !(receipt.requiredDestinations ?? ["shopify", "substack"]).includes(kind)
+    ) {
+      throw new Error(`${kind} is outside this receipt's publication targets.`);
+    }
     const article = articleFor(receipt);
     assertReadyForPublish(path, article);
     const target = article[kind];
@@ -458,6 +511,10 @@ async function main() {
           batch: batch.id,
           source: batch.product?.url ?? batch.craft?.url,
           status: receiptStatus(receipt),
+          requiredDestinations: receipt.requiredDestinations ?? [
+            "shopify",
+            "substack",
+          ],
           articles: receipt.articles.map((article) => ({
             index: article.themeIndex,
             title: article.title,
